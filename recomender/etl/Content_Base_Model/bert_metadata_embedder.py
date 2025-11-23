@@ -453,10 +453,12 @@ class HybridEmbeddingPipeline:
         
         return variant_ids, clip_embeddings
     
-    def load_metadata(self, csv_path: str = "../data/processed/item_features.csv") -> pd.DataFrame:
+    def load_metadata(self, csv_path: str = None) -> pd.DataFrame:
         """
         Load product metadata from CSV
         """
+        if csv_path is None:
+            csv_path = os.path.join(os.path.dirname(__file__), "../data/processed/item_features.csv")
         logger.info(f"Loading metadata from {csv_path}...")
         
         if not os.path.exists(csv_path):
@@ -636,8 +638,8 @@ if __name__ == "__main__":
     results = pipeline.run(
         save_to_db=True,
         save_to_numpy=True,
-        input_dir="../data/processed",
-        output_dir="../data/processed"
+        input_dir="recomender/etl/data/processed",
+        output_dir="recomender/etl/data/processed"
     )
     
     print("\n Hybrid embeddings ready!")
