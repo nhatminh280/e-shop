@@ -55,8 +55,8 @@ app:
     vnpay:
       version: ${VNPAY_VERSION:2.1.0}
       command: ${VNPAY_COMMAND:pay}
-      tmn-code: ${VNPAY_TMN_CODE:82TFXA73}
-      hash-secret: ${VNPAY_HASH_SECRET:EVPSPUGCI0D5M0RP8KTVHHUAP29XNWLK}
+      tmn-code: ${VNPAY_TMN_CODE:BZGLF0ND}
+      hash-secret: ${VNPAY_HASH_SECRET:K3QZ2671FH3UA2BM4N8KJEB5GBU2ZOO4}
       api-url: ${VNPAY_API_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
       return-url: ${VNPAY_RETURN_URL:http://localhost:5173/payment-result}
       #      ipn-url: ${VNPAY_IPN_URL:http://localhost:8080} 
