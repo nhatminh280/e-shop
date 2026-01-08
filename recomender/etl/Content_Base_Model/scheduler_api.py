@@ -76,7 +76,7 @@ class RunHistoryResponse(BaseModel):
 class SchedulerMonitor:
     """Monitor and manage scheduler data"""
     
-    def __init__(self, log_dir: str = "./logs/scheduler"):
+    def __init__(self, log_dir: str = "../logs/scheduler"):
         self.log_dir = Path(log_dir)
         self.history_file = self.log_dir / "run_history.json"
         

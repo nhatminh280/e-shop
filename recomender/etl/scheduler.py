@@ -47,22 +47,36 @@ from run_etl import run_full_etl_pipeline
 # LOGGING SETUP
 # ============================================================================
 
-def setup_logging(log_dir: str = "logs/scheduler") -> logging.Logger:
-    """Setup logging configuration"""
+def setup_logging(log_dir: str = "./logs/scheduler") -> logging.Logger:
+    """Setup improved logging format: console + file"""
     Path(log_dir).mkdir(parents=True, exist_ok=True)
-    
+
     log_file = Path(log_dir) / f"scheduler_{datetime.now().strftime('%Y%m%d')}.log"
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
+
     logger = logging.getLogger("scheduler")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False  
+
+    
+    if logger.handlers:
+        logger.handlers.clear()
+
+
+    log_format = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+    formatter = logging.Formatter(log_format, "%Y-%m-%d %H:%M:%S")
+
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     return logger
 
 logger = setup_logging()

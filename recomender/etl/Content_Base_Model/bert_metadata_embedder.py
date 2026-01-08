@@ -630,7 +630,7 @@ if __name__ == "__main__":
     pipeline = HybridEmbeddingPipeline(
         db_config=Config.DB_CONFIG,
         bert_model="bert-base-uncased",
-        fusion_alpha=0.7,  # 70% CLIP + 30% metadata
+        fusion_alpha=0.6,  # 70% CLIP + 30% metadata
         device="cuda"
     )
     
