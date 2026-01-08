@@ -1,0 +1,24 @@
+[
+  {
+    "task": "HealthCheck",
+    "start_time": "2026-01-06T06:51:10.082816",
+    "status": "success",
+    "error": null,
+    "timestamp": "2026-01-06T06:51:10.083018",
+    "checks": {
+      "./data/processed/interactions.csv": true,
+      "./data/processed/user_features.csv": true,
+      "./data/processed/item_features.csv": true,
+      "./data/processed/clip_item_embeddings.npy": true,
+      "./data/processed/hybrid_embeddings.npy": true,
+      "./data/faiss/hybrid_index.faiss": true,
+      "database": false
+    },
+    "disk_usage_percent": 89.1,
+    "disk_free_gb": 4.720134735107422,
+    "memory_usage_percent": 25.4,
+    "memory_available_gb": 11.451690673828125,
+    "duration_seconds": 0.009398937225341797,
+    "end_time": "2026-01-06T06:51:10.092217"
+  }
+]

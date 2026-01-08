@@ -13,7 +13,7 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
-import pathlib  # ✅ FIX: Thêm import này
+import pathlib 
 
 BASE_URL = "http://localhost:8000"
 

@@ -29,6 +29,12 @@ import time
 from pathlib import Path
 import pandas as pd
 from contextlib import asynccontextmanager
+from .scheduler_api import (
+    get_scheduler_monitor,
+    SchedulerSummary,
+    RunHistoryResponse,
+    SchedulerLogs,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -45,10 +51,11 @@ class Config:
     """Application configuration"""
     
     # Paths inside container
-    EMBEDDINGS_PATH = "data/processed/hybrid_embeddings.npy"
-    VARIANT_IDS_PATH = "data/processed/hybrid_variant_ids.npy"
-    FAISS_INDEX_PATH = "data/faiss/hybrid_index.faiss"
-    PRODUCT_METADATA_PATH = "data/processed/item_features.csv"
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    EMBEDDINGS_PATH = BASE_DIR/"data/processed/hybrid_embeddings.npy"
+    FAISS_INDEX_PATH = BASE_DIR /"data/faiss/hybrid_index.faiss"
+    VARIANT_IDS_PATH = BASE_DIR/"data/processed/hybrid_variant_ids.npy"
+    PRODUCT_METADATA_PATH = BASE_DIR/"data/processed/item_features.csv"
     
     # FAISS settings
     EMBEDDING_DIM = 512
@@ -278,9 +285,10 @@ class FAISSIndexManager:
     def save_index(self, path: str = None):
         """Save FAISS index to disk"""
         path = path or self.config.FAISS_INDEX_PATH
+        
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         
-        faiss.write_index(self.index, path)
+        faiss.write_index(self.index, str(path))
         
         # Save mappings
         mappings = {
@@ -288,8 +296,8 @@ class FAISSIndexManager:
             'id_to_idx': self.id_to_idx,
             'idx_to_id': self.idx_to_id
         }
-        
-        with open(path.replace('.faiss', '_mappings.pkl'), 'wb') as f:
+        mappings_path = str(path).replace('.faiss', '_mappings.pkl')
+        with open(mappings_path, 'wb') as f:
             pickle.dump(mappings, f)
         
         logger.info(f"✓ FAISS index saved to {path}")
@@ -297,23 +305,24 @@ class FAISSIndexManager:
     def load_index(self, path: str = None):
         """Load FAISS index from disk"""
         path = path or self.config.FAISS_INDEX_PATH
-        
+        path = str(path) 
         if not Path(path).exists():
             raise FileNotFoundError(f"FAISS index not found at {path}")
-        
+
         logger.info(f"Loading FAISS index from {path}...")
-        
+
         self.index = faiss.read_index(path)
+
         
-        # Load mappings
-        with open(path.replace('.faiss', '_mappings.pkl'), 'rb') as f:
+        mappings_path = path.replace('.faiss', '_mappings.pkl')
+        with open(mappings_path, 'rb') as f:
             mappings = pickle.load(f)
-        
+
         self.variant_ids = mappings['variant_ids']
         self.id_to_idx = mappings['id_to_idx']
         self.idx_to_id = mappings['idx_to_id']
-        
-        logger.info(f" FAISS index loaded: {self.index.ntotal} vectors")
+
+        logger.info(f"✓ FAISS index loaded: {self.index.ntotal} vectors")
     
     def load_product_metadata(self, path: str = None):
         """Load product metadata for enriching responses"""
@@ -500,152 +509,182 @@ async def health_check():
         embedding_dimension=Config.EMBEDDING_DIM
     )
 
-
 @eshop.get("/recommend/{variant_id}", response_model=RecommendationResponse)
 async def get_recommendations(
     variant_id: str,
-    k: int = Query(default=Config.DEFAULT_K, ge=1, le=Config.MAX_K, description="Number of recommendations")
+    k: int = Query(default=Config.DEFAULT_K, ge=1, le=Config.MAX_K),
+    min_similarity: float = Query(default=0.7, ge=0.0, le=1.0)
 ):
     """
-    Get recommendations for a product variant.
+    Get recommendations with fallback support
+    
     Args:
-        variant_id: Variant ID of the clicked product
-        k: Number of recommendations to return
+        variant_id: Query product variant ID
+        k: Number of recommendations (default: 10, max: 100)
+        min_similarity: Minimum similarity for fallback items (default: 0.7)
     """
     start_time = time.time()
-
+    
     # Check cache
     cached = cache_manager.get(variant_id, k)
     if cached:
         cached['response_time_ms'] = (time.time() - start_time) * 1000
         cached['from_cache'] = True
         return RecommendationResponse(**cached)
-
-    # Get query product metadata
+    
+    # Get query metadata
     query_meta = faiss_manager.product_metadata.get(variant_id, {})
     query_gender = query_meta.get("gender")
-    query_product_id = query_meta.get("product_id")  # Parent product ID
-
-    # Search FAISS - get more results to filter
+    query_product_id = query_meta.get("product_id")
+    
+    # FAISS search with error handling
     try:
-        rec_ids, rec_scores = faiss_manager.search(variant_id, k * 5)  
+        rec_ids, rec_scores = faiss_manager.search(variant_id, k * 10)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    # Group recommendations by parent product_id
-    product_groups = {}  # {product_id: [(variant_id, score, metadata), ...]}
+        raise HTTPException(status_code=404, detail=f"Product not found: {str(e)}")
+    except Exception as e:
+        logger.error(f"FAISS search error: {e}")
+        raise HTTPException(status_code=500, detail="Search engine error")
     
-    for rec_variant_id, score in zip(rec_ids, rec_scores):
-        metadata = faiss_manager.product_metadata.get(rec_variant_id, {})
-        if not metadata:
-            continue
-        if rec_variant_id == variant_id:
-            continue
+    # Helper function: select best variant per product
+    def select_best_variants(candidates, apply_similarity_filter=False):
+        """Group by product_id and select best variant"""
+        groups = {}
+        for variant_id, score, metadata in candidates:
+            # Apply similarity filter if needed
+            if apply_similarity_filter and score < min_similarity:
+                continue
+                
+            parent_id = metadata.get("product_id")
+            if not parent_id or parent_id == query_product_id:
+                continue
+                
+            if parent_id not in groups:
+                groups[parent_id] = []
+            groups[parent_id].append((variant_id, score, metadata))
+        
+        # Select best variant per product
+        results = []
+        for parent_id, variants in groups.items():
+            best = max(variants, key=lambda x: (
+                x[2].get("popularity_score_normalized", 0),
+                x[1]  # similarity
+            ))
+            results.append(best)
+        return results
     
-        parent_id = metadata.get("product_id")
-        if not parent_id:
+    # Process recommendations
+    candidates = []
+    for rec_id, score in zip(rec_ids, rec_scores):
+        if rec_id == variant_id:
             continue
-        # Skip if same as query product (different color/size)
-        if parent_id == query_product_id:
-            continue
-        
-        if parent_id not in product_groups:
-            product_groups[parent_id] = []
-        
-        product_groups[parent_id].append((rec_variant_id, score, metadata))
+        metadata = faiss_manager.product_metadata.get(rec_id, {})
+        if metadata:
+            candidates.append((rec_id, score, metadata))
     
-    # Select best variant from each product group
-    # Criteria: highest popularity_score, or highest similarity if same popularity
-    same_gender_recs = []
-    diff_gender_recs = []
+    # Select best variants
+    best_variants = select_best_variants(candidates, apply_similarity_filter=False)
     
-    for parent_id, variants in product_groups.items():
-        # Sort by: 1) popularity_score_normalized (desc), 2) similarity score (desc)
-        variants_sorted = sorted(
-            variants, 
-            key=lambda x: (
-                x[2].get("popularity_score_normalized", 0),  # popularity first
-                x[1]  # then similarity
-            ),
-            reverse=True
-        )
-        
-        # Take best variant
-        best_variant = variants_sorted[0]
-        rec_variant_id, score, metadata = best_variant
-        
+    # Build recommendation items
+    recommendations = []
+    for variant_id, score, metadata in best_variants:
         rec_item = RecommendationItem(
-            variant_id=rec_variant_id,
+            variant_id=variant_id,
             similarity_score=score,
             product_name=metadata.get("product_name"),
             category_name=metadata.get("category_name"),
             price=metadata.get("price"),
             image_path=metadata.get("image_path")
         )
-        
-        # Separate by gender
-        if query_gender and metadata.get("gender") == query_gender:
-            same_gender_recs.append(rec_item)
-        else:
-            diff_gender_recs.append(rec_item)
+        recommendations.append((rec_item, metadata))
     
-    # Gender balancing: prioritize same gender
-    recommendations = same_gender_recs[:k]
-    if len(recommendations) < k:
-        recommendations.extend(diff_gender_recs[:(k - len(recommendations))])
+    # Gender balancing
+    if query_gender:
+        same_gender = [r for r, m in recommendations if m.get("gender") == query_gender]
+        diff_gender = [r for r, m in recommendations if m.get("gender") != query_gender]
+        final_recs = same_gender[:k]
+        if len(final_recs) < k:
+            final_recs.extend(diff_gender[:(k - len(final_recs))])
+    else:
+        final_recs = [r for r, _ in recommendations[:k]]
     
-    # Limit to k
-    recommendations = recommendations[:k]
-
-    # Make response
-    response_time = (time.time() - start_time) * 1000
+    # Build response
     response_data = {
         "query_variant_id": variant_id,
-        "recommendations": [r.dict() for r in recommendations],
-        "response_time_ms": response_time,
+        "recommendations": [r.dict() for r in final_recs],
+        "response_time_ms": (time.time() - start_time) * 1000,
         "from_cache": False,
-        "total_results": len(recommendations)
+        "total_results": len(final_recs)
     }
-
-    # Cache result
+    
+    # Cache
     cache_manager.set(variant_id, k, response_data)
-
     return RecommendationResponse(**response_data)
 
 
+@asynccontextmanager
+async def lifespan(eshop: FastAPI):
+    """Startup and shutdown with proper error handling"""
+    global faiss_manager, cache_manager
+    
+    logger.info(" Starting recommendation API...")
+    config = Config()
+    
+    # Initialize FAISS
+    faiss_manager = FAISSIndexManager(config)
+    
+    try:
+        if Path(config.FAISS_INDEX_PATH).exists():
+            logger.info("Loading existing FAISS index...")
+            faiss_manager.load_index()
+        else:
+            logger.info("Building new FAISS index...")
+            embeddings = np.load(config.EMBEDDINGS_PATH)
+            variant_ids = np.load(config.VARIANT_IDS_PATH, allow_pickle=True)
+            faiss_manager.build_index_from_embeddings(embeddings, variant_ids)
+            faiss_manager.save_index()
+    except Exception as e:
+        logger.error(f"Failed to initialize FAISS: {e}")
+        raise
+    
+    # Load metadata
+    try:
+        faiss_manager.load_product_metadata()
+    except Exception as e:
+        logger.warning(f"Failed to load metadata: {e}")
+    
+    # Initialize Redis
+    cache_manager = RedisCacheManager(config)
+    
+    logger.info(" API ready to serve requests")
+    yield
+    
+    logger.info(" Shutting down...")
 
 @eshop.post("/recommend/batch", response_model=Dict[str, Any])
 async def get_batch_recommendations(request: BatchRecommendationRequest):
-    """
-    Get recommendations for multiple products in batch
-    
-    Args:
-        request: BatchRecommendationRequest with product_ids and k
-    
-    Returns:
-        Dict mapping product_id -> recommendations
-    """
+    """Batch recommendations with error handling"""
     start_time = time.time()
     
-    # Batch search
-    results = faiss_manager.batch_search(request.product_ids, request.k)
+    try:
+        results = faiss_manager.batch_search(request.product_ids, request.k)
+    except Exception as e:
+        logger.error(f"Batch search error: {e}")
+        raise HTTPException(status_code=500, detail="Batch search failed")
     
     # Format responses
     formatted_results = {}
-    
     for product_id, (rec_ids, rec_scores) in results.items():
         recommendations = []
-        
-        for rec_variant_id, score in zip(rec_ids, rec_scores):  
-            metadata = faiss_manager.product_metadata.get(rec_variant_id, {})
-            
+        for rec_id, score in zip(rec_ids, rec_scores):
+            metadata = faiss_manager.product_metadata.get(rec_id, {})
             recommendations.append({
-                'variant_id': rec_variant_id,  
+                'variant_id': rec_id,
                 'similarity_score': score,
                 'product_name': metadata.get('product_name'),
                 'category_name': metadata.get('category_name'),
                 'price': metadata.get('price'),
-                'image_path': metadata.get('image_path') 
+                'image_path': metadata.get('image_path')
             })
         
         formatted_results[product_id] = {
@@ -653,12 +692,11 @@ async def get_batch_recommendations(request: BatchRecommendationRequest):
             'total_results': len(recommendations)
         }
     
-    response_time = (time.time() - start_time) * 1000
-    
     return {
         'results': formatted_results,
-        'response_time_ms': response_time,
-        'total_queries': len(request.product_ids)
+        'response_time_ms': (time.time() - start_time) * 1000,
+        'total_queries': len(request.product_ids),
+        'successful_queries': len(results)
     }
 
 
@@ -673,10 +711,218 @@ async def get_stats():
         "cache_ttl_seconds": Config.REDIS_CACHE_TTL,
         "max_k": Config.MAX_K
     }
+    
+@eshop.get("/scheduler/summary", response_model=Dict[str, Any])
+async def scheduler_summary():
+    """
+    Get scheduler summary with KPIs
+    
+    Returns:
+        SchedulerSummary with:
+        - scheduler_running: Is scheduler active
+        - last_full_run: Last ETL completion
+        - total_runs_today: Count of runs today
+        - successful_runs: Successful runs today
+        - failed_runs: Failed runs today
+        - average_duration_seconds: Avg run time
+        - next_scheduled_run: When next run is scheduled
+        - tasks: Status of each task
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        summary = monitor.get_scheduler_summary()
+        
+        return {
+            'status': 'success',
+            'data': summary
+        }
+    except Exception as e:
+        logger.error(f"Error getting scheduler summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# 
-# CLI for building index
+@eshop.get("/scheduler/history", response_model=Dict[str, Any])
+async def scheduler_run_history(
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
+    task: Optional[str] = Query(None, description="Filter by task name"),
+    status: Optional[str] = Query(None, description="Filter by status (success/failed)")
+):
+    """
+    Get paginated run history
+    
+    Args:
+        page: Page number (1-indexed)
+        page_size: Number of items per page
+        task: Filter by task name (etl, clip_embedding, bert_hybrid, etc)
+        status: Filter by status ('success' or 'failed')
+    
+    Returns:
+        Paginated list of runs with timestamps and status
+    
+    Example:
+        GET /scheduler/history?page=1&page_size=20
+        GET /scheduler/history?task=etl&status=success
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        history = monitor.get_run_history(
+            page=page,
+            page_size=page_size,
+            task_filter=task,
+            status_filter=status
+        )
+        
+        return {
+            'status': 'success',
+            'data': history
+        }
+    except Exception as e:
+        logger.error(f"Error getting run history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@eshop.get("/scheduler/logs", response_model=Dict[str, Any])
+async def scheduler_logs(
+    lines: int = Query(default=100, ge=10, le=1000, description="Number of log lines"),
+    minutes: Optional[int] = Query(None, ge=1, le=1440, description="Filter logs from last N minutes")
+):
+    """
+    Get latest scheduler logs
+    
+    Args:
+        lines: Number of most recent log lines to return
+        minutes: Only return logs from last N minutes (optional)
+    
+    Returns:
+        Latest log entries with timestamps and levels
+    
+    Example:
+        GET /scheduler/logs?lines=50
+        GET /scheduler/logs?lines=100&minutes=60
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        logs = monitor.get_latest_logs(lines=lines, minutes=minutes)
+        
+        return {
+            'status': 'success',
+            'data': logs
+        }
+    except Exception as e:
+        logger.error(f"Error getting scheduler logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@eshop.get("/scheduler/task/{task_name}", response_model=Dict[str, Any])
+async def scheduler_task_status(task_name: str):
+    """
+    Get detailed status of a specific task
+    
+    Args:
+        task_name: Task name (etl, clip_embedding, bert_hybrid, faiss_index, health_check)
+    
+    Returns:
+        Task status with:
+        - last_run: Timestamp of last execution
+        - success_rate: Success rate of last 10 runs
+        - recent_runs: Last 5 runs details
+        - total_runs: Total executions
+        - average_duration_seconds: Average execution time
+    
+    Example:
+        GET /scheduler/task/etl
+        GET /scheduler/task/clip_embedding
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        task_status = monitor.get_task_status(task_name)
+        
+        return {
+            'status': 'success',
+            'data': task_status
+        }
+    except Exception as e:
+        logger.error(f"Error getting task status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@eshop.get("/scheduler/stats", response_model=Dict[str, Any])
+async def scheduler_statistics():
+    """
+    Get overall scheduler statistics
+    
+    Returns:
+        Statistics including:
+        - total_runs: Total number of runs
+        - total_successful: Successful runs
+        - total_failed: Failed runs
+        - success_rate: Overall success rate %
+        - total_duration_hours: Total time spent
+        - average_duration_minutes: Average per run
+        - oldest_run: First recorded run
+        - latest_run: Most recent run
+    
+    Example:
+        GET /scheduler/stats
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        stats = monitor.get_scheduler_stats()
+        
+        return {
+            'status': 'success',
+            'data': stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting scheduler stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+ 
+# Dashboard Data Endpoint
+
+@eshop.get("/dashboard/overview", response_model=Dict[str, Any])
+async def dashboard_overview():
+    """
+    Get comprehensive dashboard data
+    
+    Returns:
+        Combined data for dashboard display:
+        - scheduler_summary: KPI data
+        - recent_history: Last 5 runs
+        - system_stats: System statistics
+        - api_health: API health status
+    
+    Example:
+        GET /dashboard/overview
+    """
+    try:
+        monitor = get_scheduler_monitor()
+        
+        overview = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'scheduler_summary': monitor.get_scheduler_summary(),
+            'recent_history': monitor.get_run_history(page=1, page_size=5)['items'],
+            'system_stats': monitor.get_scheduler_stats(),
+            'api_health': {
+                'status': 'healthy',
+                'faiss_index_size': faiss_manager.index.ntotal if faiss_manager else 0,
+                'redis_connected': cache_manager.is_connected() if cache_manager else False,
+                'api_version': Config.API_VERSION
+            }
+        }
+        
+        return {
+            'status': 'success',
+            'data': overview
+        }
+    except Exception as e:
+        logger.error(f"Error getting dashboard overview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 if __name__ == "__main__":
     import sys

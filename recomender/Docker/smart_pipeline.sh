@@ -359,7 +359,7 @@ run_smart_pipeline() {
         echo ""
         echo -e "${GREEN}"
         echo "============================================================================"
-        echo "  ✓ PIPELINE COMPLETED SUCCESSFULLY!"
+        echo "   PIPELINE COMPLETED SUCCESSFULLY!"
         echo "============================================================================"
         echo -e "${NC}"
         echo ""

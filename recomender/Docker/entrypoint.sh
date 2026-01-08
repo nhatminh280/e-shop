@@ -10,7 +10,7 @@ set -e
 # Configuration
 # ============================================================================
 
-DATA_DIR="./data"
+DATA_DIR="../etl/data"
 PROCESSED_DIR="${DATA_DIR}/processed"
 FAISS_DIR="${DATA_DIR}/faiss"
 

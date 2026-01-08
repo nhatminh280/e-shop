@@ -1,0 +1,42 @@
+{
+  "etl": {
+    "enabled": true,
+    "schedule": "daily",
+    "time": "02:00",
+    "lookback_days": 90,
+    "description": "Run ETL pipeline daily at 2 AM"
+  },
+  "clip_embedding": {
+    "enabled": true,
+    "schedule": "after_etl",
+    "text_weight": 0.5,
+    "description": "Generate CLIP embeddings after ETL completes"
+  },
+  "bert_hybrid": {
+    "enabled": true,
+    "schedule": "after_clip",
+    "fusion_alpha": 0.7,
+    "description": "Generate hybrid embeddings after CLIP completes"
+  },
+  "faiss_index": {
+    "enabled": true,
+    "schedule": "after_bert",
+    "description": "Rebuild FAISS index after hybrid embeddings"
+  },
+  "health_check": {
+    "enabled": true,
+    "schedule": "hourly",
+    "description": "Run health checks every hour"
+  },
+  "notifications": {
+    "enabled": true,
+    "slack_webhook": "",
+    "email": "",
+    "on_failure": true,
+    "on_success": false
+  },
+  "retry": {
+    "max_attempts": 3,
+    "delay_seconds": 300
+  }
+}

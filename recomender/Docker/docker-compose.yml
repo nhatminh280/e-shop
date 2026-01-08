@@ -36,10 +36,44 @@ services:
     networks:
       - eshop-network
 
+  # SCHEDULER SERVICE
+  scheduler:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile
+    container_name: eshop-scheduler
+    command: python scheduler.py --daemon
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=eshop
+      - DB_USER=app
+      - DB_PASSWORD=secret
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SCHEDULER_CONFIG=/app/scheduler_config.json
+    volumes:
+      - ../etl/data:/app/data
+      - ../etl/logs:/app/logs
+      - ../etl/scheduler.py:/app/scheduler.py
+      - ../etl/config.py:/app/config.py
+      - ../etl/Content_Base_Model/scheduler_api.py:/app/scheduler_api.py
+      - ./scheduler_config.json:/app/scheduler_config.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - eshop-network
+    restart: unless-stopped
+    profiles:
+      - scheduler
+
   # ETL
   etl:
     build:
-      context: .. # Từ thư mục gốc project
+      context: ..
       dockerfile: Docker/Dockerfile
     container_name: eshop-etl
     entrypoint: ["/app/entrypoint.sh"]
@@ -51,7 +85,6 @@ services:
       - DB_USER=app
       - DB_PASSWORD=secret
     volumes:
-      # Mount từ thư mục gốc project (vì context là ..)
       - ../etl/data:/app/data
       - ../etl/logs:/app/logs
     depends_on:
@@ -145,7 +178,6 @@ services:
     volumes:
       - ../etl/data:/app/data
       - ../etl/logs:/app/logs
-
       - ../etl/Content_Base_Model:/app/Content_Base_Model
       - ../etl/config.py:/app/config.py
     depends_on:
@@ -163,14 +195,14 @@ services:
       context: ..
       dockerfile: Docker/Dockerfile
     container_name: eshop-gradio
-    command: python gradio_tester.py
+    command: python testAPI.py
     environment:
       - API_URL=http://api:8000
     ports:
       - "7860:7860"
     volumes:
       - ../etl/data:/app/data
-      - ../etl/gradio_tester.py:/app/gradio_tester.py
+      - ../etl/testAPI.py:/app/testAPI.py
     depends_on:
       - api
     networks:
