@@ -580,10 +580,3 @@ The API returns standard HTTP status codes:
 
 ---
 
-## License
-
-[Your License Here]
-
-## Contributors
-
-[Your Contributors Here]
