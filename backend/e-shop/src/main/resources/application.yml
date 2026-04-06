@@ -41,6 +41,8 @@ app:
   base-url: /api/v1
   mail:
     from-address: ${APP_MAIL_FROM:E-Shop no-reply <no-reply@eshop.local>}
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:5173,http://localhost:5174}
   auth:
     activation:
       base-url: ${APP_ACTIVATION_BASE_URL:http://localhost:8080/api/auth/activate}

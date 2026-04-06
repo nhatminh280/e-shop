@@ -15,6 +15,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtStompChannelInterceptor jwtStompChannelInterceptor;
+    private final AppEnv appEnv;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
@@ -24,8 +25,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
+        String[] allowedOriginPatterns = appEnv.getCors().getAllowedOriginPatterns().toArray(String[]::new);
+        registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOriginPatterns).withSockJS();
+        registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOriginPatterns);
     }
 
     @Override

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import api from "../../config/axios";
+import { socketUrl } from "../../config/runtime";
 import { useAppProvider } from "../../context/useContext";
 import { Client, type Frame } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
@@ -14,8 +15,6 @@ import {
   MessagesSquare,
 } from "lucide-react";
 import { format } from "date-fns";
-
-const SOCKET_URL = "http://localhost:8080/ws";
 
 interface Sender {
   id: string;
@@ -420,7 +419,7 @@ const AdminSupportChat: React.FC = () => {
 
     // 2. Kết nối WebSocket/STOMP
     const client = new Client({
-      webSocketFactory: () => new SockJS(SOCKET_URL),
+      webSocketFactory: () => new SockJS(socketUrl),
       connectHeaders: headers,
       reconnectDelay: 5000,
       onConnect: () => {
