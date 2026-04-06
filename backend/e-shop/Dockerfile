@@ -3,9 +3,11 @@ WORKDIR /app
 
 # Leverage Docker layer caching by copying the dependency descriptors first
 COPY pom.xml ./
-COPY src ./src
+RUN mvn dependency:go-offline -q
 
-RUN mvn -B -DskipTests clean package
+
+COPY src ./src
+RUN mvn clean package -DskipTests -q
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

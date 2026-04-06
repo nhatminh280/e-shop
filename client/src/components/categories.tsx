@@ -33,6 +33,23 @@ export const CategoryCarousel = () => {
   const navigate = useNavigate();
   const params = new URLSearchParams();
 
+  const normalizeCategories = (payload: unknown): Category[] => {
+    if (Array.isArray(payload)) {
+      return payload as Category[];
+    }
+
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "content" in payload &&
+      Array.isArray((payload as { content?: unknown }).content)
+    ) {
+      return (payload as { content: Category[] }).content;
+    }
+
+    return [];
+  };
+
   const handlOnclick = (slug: string) => {
     params.set("category", slug);
     navigate(`/all-products?${params.toString()}`);
@@ -41,10 +58,20 @@ export const CategoryCarousel = () => {
   useEffect(() => {
     async function fetchData() {
       try {
-        const data: any = await api.get("/api/catalog/categories/common");
-        setCategories(data.data);
+        const response = await api.get("/api/catalog/categories/common");
+        const normalizedCategories = normalizeCategories(response.data);
+
+        if (!Array.isArray(response.data)) {
+          console.warn(
+            "Unexpected categories response shape:",
+            response.data
+          );
+        }
+
+        setCategories(normalizedCategories);
       } catch (error: any) {
         console.log(error.response?.data?.message || error.message);
+        setCategories([]);
       }
     }
     fetchData();
