@@ -1,25 +1,16 @@
-# Deploying E-Shop to DigitalOcean
+# Deploying The Backend to DigitalOcean
 
-This repository is set up for a practical DigitalOcean App Platform deployment using two apps:
+This guide is for the setup where your frontend is already hosted elsewhere, such as Cloudflare Pages, and you only want to run the Spring Boot API on DigitalOcean.
 
-- `storefront-app.yaml` for the public storefront and Spring Boot API
-- `admin-app.yaml` for the admin dashboard on its own hostname
-
-The admin app is split out intentionally because its router currently assumes it runs at the domain root, not under a `/admin` subpath.
-
-## What changed in the repo
-
-- Frontend API and WebSocket endpoints are now environment-driven via `VITE_API_BASE_URL` and `VITE_SOCKET_URL`.
-- Backend HTTP/WebSocket allowed origins now come from `APP_CORS_ALLOWED_ORIGIN_PATTERNS`.
-- App Platform specs live in `.do/`.
+Use `.do/backend-app.yaml` for a backend-only App Platform deployment.
 
 ## Recommended architecture
 
-1. Create a managed PostgreSQL cluster on DigitalOcean and use it for the Spring Boot API.
-2. Create a Spaces bucket for product media and point the backend’s MinIO-compatible storage settings at it.
-3. Deploy the public storefront and API as one App Platform app using `.do/storefront-app.yaml`.
-4. Deploy the admin dashboard as a second App Platform app using `.do/admin-app.yaml`.
-5. Leave `RECOMMENDATION_ENABLED=false` until you deploy the Python recommender separately.
+1. Keep the storefront and admin on Cloudflare.
+2. Deploy the Spring Boot API to DigitalOcean App Platform using `.do/backend-app.yaml`.
+3. Use DigitalOcean Managed PostgreSQL for the app database.
+4. Use DigitalOcean Spaces for product media uploads.
+5. Leave `RECOMMENDATION_ENABLED=false` until the Python recommender is deployed separately.
 
 ## Required cloud resources
 
@@ -31,11 +22,13 @@ This app uses `pgvector`, so enable the extension after the database is created:
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-Then import your schema or let Flyway migrate a fresh database.
+Then either import your existing schema/data or let Flyway migrate a fresh database on first boot.
 
 ### Spaces
 
-Create a bucket such as `eshop-products` in the same region as your apps if possible. Use:
+Create a bucket such as `eshop-products` in the same region as the API if possible.
+
+Required values:
 
 - `STORAGE_MINIO_ENDPOINT=https://<region>.digitaloceanspaces.com`
 - `STORAGE_MINIO_BUCKET=<bucket-name>`
@@ -44,22 +37,43 @@ Create a bucket such as `eshop-products` in the same region as your apps if poss
 
 If you enable the Spaces CDN, set `STORAGE_MINIO_PUBLIC_URL` to the CDN hostname instead.
 
+## Backend env vars you need to set
+
+These are the production values that matter most when the frontend lives on Cloudflare:
+
+- `SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:25060/<db>?sslmode=require`
+- `SPRING_DATASOURCE_USERNAME=<db-user>`
+- `SPRING_DATASOURCE_PASSWORD=<db-password>`
+- `JWT_SECRET=<long-random-secret>`
+- `APP_CORS_ALLOWED_ORIGIN_PATTERNS=https://<your-storefront-domain>,https://<your-admin-domain>`
+- `APP_ACTIVATION_BASE_URL=https://<your-storefront-domain>/auth/activate`
+- `VNPAY_RETURN_URL=https://<your-storefront-domain>/payment-result`
+- `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`
+- `APP_MAIL_FROM=<sender you want in outgoing mail>`
+- `STORAGE_MINIO_ENDPOINT`, `STORAGE_MINIO_ACCESS_KEY`, `STORAGE_MINIO_SECRET_KEY`
+- `STORAGE_MINIO_BUCKET`, `STORAGE_MINIO_REGION`, `STORAGE_MINIO_PUBLIC_URL`
+- `RECOMMENDATION_ENABLED=false`
+
+Important:
+
+- `APP_CORS_ALLOWED_ORIGIN_PATTERNS` must include every browser origin that will call the API or open `/ws`.
+- `APP_ACTIVATION_BASE_URL` must point to the frontend route, not the backend route.
+- `VNPAY_RETURN_URL` must also point to the frontend, because the browser is redirected back there after payment.
+
 ## App Platform setup
 
 ### 1. Push this repo to GitHub
 
-Both app specs assume DigitalOcean will build from a GitHub repository. Update:
+The App Platform spec assumes DigitalOcean will build from GitHub. Update these fields in `.do/backend-app.yaml`:
 
 - `github.repo`
 - `github.branch`
 
-inside both files in `.do/`.
-
-### 2. Edit `.do/storefront-app.yaml`
+### 2. Edit `.do/backend-app.yaml`
 
 Replace the placeholder values for:
 
-- database host, database name, username, and password
+- database host, name, username, and password
 - `JWT_SECRET`
 - SMTP credentials
 - `APP_CORS_ALLOWED_ORIGIN_PATTERNS`
@@ -67,52 +81,42 @@ Replace the placeholder values for:
 - Spaces access keys and bucket values
 - `VNPAY_RETURN_URL` if you use VNPAY
 
-Keep `RECOMMENDATION_ENABLED=false` unless you also deploy the Python API and set `RECOMMENDER_BASE_URL`.
+Keep `RECOMMENDATION_ENABLED=false` unless you also deploy the Python recommender and set `RECOMMENDER_BASE_URL`.
 
-### 3. Edit `.do/admin-app.yaml`
+### 3. Create the app
 
-Set:
-
-- `VITE_API_BASE_URL=https://<your-storefront-domain>`
-- `VITE_SOCKET_URL=https://<your-storefront-domain>/ws`
-
-### 4. Create the apps
-
-You can create both apps from the DigitalOcean control panel or with `doctl`:
+You can create the API from the DigitalOcean control panel or with `doctl`:
 
 ```bash
-doctl apps create --spec .do/storefront-app.yaml
-doctl apps create --spec .do/admin-app.yaml
+doctl apps create --spec .do/backend-app.yaml
 ```
 
-### 5. Attach domains
+### 4. Attach the API domain
 
-Recommended hostnames:
+A typical hostname is:
 
-- `eshop.example.com` or `www.example.com` for the storefront app
-- `admin.eshop.example.com` for the admin app
+- `api.shop.example.com`
 
-After the domains are active, update:
+After the domain is active, update these frontend values in Cloudflare Pages:
 
-- `APP_CORS_ALLOWED_ORIGIN_PATTERNS`
-- `APP_ACTIVATION_BASE_URL`
-- `VNPAY_RETURN_URL`
-- admin `VITE_API_BASE_URL`
-- admin `VITE_SOCKET_URL`
+- storefront `VITE_API_BASE_URL=https://api.shop.example.com`
+- storefront `VITE_SOCKET_URL=https://api.shop.example.com/ws`
+- admin `VITE_API_BASE_URL=https://api.shop.example.com`
+- admin `VITE_SOCKET_URL=https://api.shop.example.com/ws`
 
-to use the final production URLs.
+Also make sure the backend `APP_CORS_ALLOWED_ORIGIN_PATTERNS` contains the final Cloudflare frontend origins.
 
 ## Verification checklist
 
 After deployment, verify:
 
-1. `https://<storefront-domain>/actuator/health` returns `UP`.
-2. Storefront login, registration, and account activation emails work.
-3. Admin login works from the admin hostname.
+1. `https://<api-domain>/actuator/health` returns `UP`.
+2. The storefront can register and log in against the DigitalOcean API.
+3. Account activation emails send users to the Cloudflare frontend domain.
 4. Product image uploads land in Spaces and public image URLs load correctly.
-5. Support chat connects through `/ws`.
-6. Payment return URLs point back to the storefront domain.
+5. Support chat connects through `https://<api-domain>/ws`.
+6. If VNPAY is enabled, payment returns land on the frontend domain, not the API domain.
 
-## Optional next step: recommender service
+## Notes
 
-The Python recommender is not included in the App Platform specs yet. Its dependency stack is much heavier than the Java and Vite apps, so the safest first production cut is to ship without it and re-enable recommendations after the service has its own deployment target and health checks.
+- The backend now honors `RECOMMENDATION_ENABLED`, so you can safely disable the recommender in production until that service has its own deployment.

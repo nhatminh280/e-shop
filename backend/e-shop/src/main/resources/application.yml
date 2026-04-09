@@ -68,6 +68,6 @@ app:
       expire-after-minutes: ${VNPAY_EXPIRE_AFTER_MINUTES:15}
 recommendation:
   base-url: ${RECOMMENDER_BASE_URL:http://localhost:8000}
-  enabled: true
+  enabled: ${RECOMMENDATION_ENABLED:true}
   connect-timeout: 2s
   read-timeout: 3s

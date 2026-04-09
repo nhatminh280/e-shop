@@ -1,47 +1,16 @@
-# DigitalOcean App Platform spec for the public storefront plus the Spring API.
+# DigitalOcean App Platform spec for the Spring Boot API only.
+# Use this when the storefront/admin are hosted elsewhere (for example Cloudflare Pages).
 # Replace the placeholder repo, branch, domains, and secret values before deploying.
-
-name: eshop-storefront
-region: nyc
+name: eshop-api
+region: sgp1
 alerts:
   - rule: DEPLOYMENT_FAILED
   - rule: DOMAIN_FAILED
-ingress:
-  rules:
-    - component:
-        name: api
-        preserve_path_prefix: true
-      match:
-        path:
-          prefix: /api
-    - component:
-        name: api
-        preserve_path_prefix: true
-      match:
-        path:
-          prefix: /ws
-    - component:
-        name: api
-        preserve_path_prefix: true
-      match:
-        path:
-          prefix: /swagger-ui
-    - component:
-        name: api
-        preserve_path_prefix: true
-      match:
-        path:
-          prefix: /v3/api-docs
-    - component:
-        name: storefront
-      match:
-        path:
-          prefix: /
 services:
   - name: api
     github:
-      repo: your-github-user/e-shop
-      branch: main
+      repo: finnzxje/e-shop
+      branch: deploy
       deploy_on_push: true
     source_dir: backend/e-shop
     dockerfile_path: backend/e-shop/Dockerfile
@@ -56,7 +25,7 @@ services:
       http_path: /actuator/health
     envs:
       - key: SPRING_DATASOURCE_URL
-        value: jdbc:postgresql://db-postgresql-nyc3-12345-do-user-1234567-0.g.db.ondigitalocean.com:25060/eshop?sslmode=require
+        value: jdbc:postgresql://db-postgresql-sgp1-12345-do-user-1234567-0.g.db.ondigitalocean.com:25060/eshop?sslmode=require
         scope: RUN_TIME
         type: GENERAL
       - key: SPRING_DATASOURCE_USERNAME
@@ -72,15 +41,15 @@ services:
         scope: RUN_TIME
         type: SECRET
       - key: APP_CORS_ALLOWED_ORIGIN_PATTERNS
-        value: https://eshop.example.com,https://admin.eshop.example.com
+        value: https://shop.example.com,https://www.shop.example.com,https://admin.shop.example.com
         scope: RUN_TIME
         type: GENERAL
       - key: APP_ACTIVATION_BASE_URL
-        value: https://eshop.example.com/auth/activate
+        value: https://shop.example.com/auth/activate
         scope: RUN_TIME
         type: GENERAL
       - key: APP_MAIL_FROM
-        value: E-Shop <no-reply@eshop.example.com>
+        value: E-Shop <no-reply@shop.example.com>
         scope: RUN_TIME
         type: GENERAL
       - key: SPRING_MAIL_HOST
@@ -92,7 +61,7 @@ services:
         scope: RUN_TIME
         type: GENERAL
       - key: SPRING_MAIL_USERNAME
-        value: no-reply@eshop.example.com
+        value: no-reply@shop.example.com
         scope: RUN_TIME
         type: SECRET
       - key: SPRING_MAIL_PASSWORD
@@ -100,7 +69,7 @@ services:
         scope: RUN_TIME
         type: SECRET
       - key: STORAGE_MINIO_ENDPOINT
-        value: https://nyc3.digitaloceanspaces.com
+        value: https://sgp1.digitaloceanspaces.com
         scope: RUN_TIME
         type: GENERAL
       - key: STORAGE_MINIO_ACCESS_KEY
@@ -116,34 +85,23 @@ services:
         scope: RUN_TIME
         type: GENERAL
       - key: STORAGE_MINIO_REGION
-        value: nyc3
+        value: sgp1
         scope: RUN_TIME
         type: GENERAL
       - key: STORAGE_MINIO_PUBLIC_URL
-        value: https://eshop-products.nyc3.digitaloceanspaces.com
+        value: https://eshop-products.sgp1.digitaloceanspaces.com
         scope: RUN_TIME
         type: GENERAL
       - key: VNPAY_RETURN_URL
-        value: https://eshop.example.com/payment-result
+        value: https://shop.example.com/payment-result
         scope: RUN_TIME
         type: GENERAL
       - key: RECOMMENDATION_ENABLED
         value: "false"
         scope: RUN_TIME
         type: GENERAL
-      # Optional when you deploy the Python recommender separately.
-      # - key: RECOMMENDER_BASE_URL
-      #   value: https://recommender.example.com
-      #   scope: RUN_TIME
-      #   type: GENERAL
-static_sites:
-  - name: storefront
-    github:
-      repo: your-github-user/e-shop
-      branch: main
-      deploy_on_push: true
-    source_dir: client
-    environment_slug: node-js
-    build_command: npm ci && npm run build
-    output_dir: dist
-    catchall_document: index.html
+    # Optional when you deploy the Python recommender separately.
+    # - key: RECOMMENDER_BASE_URL
+    #   value: https://recommender.example.com
+    #   scope: RUN_TIME
+    #   type: GENERAL

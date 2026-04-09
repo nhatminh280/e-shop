@@ -195,7 +195,7 @@ docker compose -f docker-compose.test.yml down
 
 ## DigitalOcean deployment
 
-Deployment-ready DigitalOcean App Platform specs are in [`.do/storefront-app.yaml`](.do/storefront-app.yaml) and [`.do/admin-app.yaml`](.do/admin-app.yaml).
+The backend-only DigitalOcean App Platform spec is in [`.do/backend-app.yaml`](.do/backend-app.yaml).
 
 The DigitalOcean deployment guide is in [`docs/deploy-digitalocean.md`](docs/deploy-digitalocean.md).
 
