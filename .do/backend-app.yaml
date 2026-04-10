@@ -89,7 +89,7 @@ services:
         scope: RUN_TIME
         type: GENERAL
       - key: STORAGE_MINIO_PUBLIC_URL
-        value: https://eshop-products.sgp1.digitaloceanspaces.com
+        value: https://sgp1.digitaloceanspaces.com
         scope: RUN_TIME
         type: GENERAL
       - key: VNPAY_RETURN_URL

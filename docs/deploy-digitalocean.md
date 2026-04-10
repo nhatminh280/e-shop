@@ -16,13 +16,50 @@ Use `.do/backend-app.yaml` for a backend-only App Platform deployment.
 
 ### PostgreSQL
 
-This app uses `pgvector`, so enable the extension after the database is created:
+Recommended: use a DigitalOcean Managed PostgreSQL cluster in the same region as the API app.
+
+For the current backend code, plain PostgreSQL is enough to boot and run Flyway migrations. `pgvector` is only needed if you later store vector embeddings in PostgreSQL for the recommender pipeline.
+
+Create the cluster either in the control panel or with `doctl`:
+
+```bash
+doctl databases create eshop-db --engine pg --region nyc --size db-s-1vcpu-1gb --num-nodes 1
+```
+
+Then create the application database inside that cluster:
+
+```bash
+doctl databases list
+doctl databases db create <cluster-id> eshop
+```
+
+Fetch the connection details:
+
+```bash
+doctl databases connection <cluster-id>
+```
+
+Use the values from that command to populate:
+
+- `SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:25060/eshop?sslmode=require`
+- `SPRING_DATASOURCE_USERNAME=<user>`
+- `SPRING_DATASOURCE_PASSWORD=<password>`
+
+If you attach the database to the App Platform app in the DigitalOcean dashboard, add the app as a trusted source on the database cluster. If trusted sources are enabled, the app must be explicitly allowed to connect.
+
+If you plan to use the recommender pipeline with PostgreSQL vector storage later, enable the `vector` extension after the database is created:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 Then either import your existing schema/data or let Flyway migrate a fresh database on first boot.
+
+Notes:
+
+- DigitalOcean Managed PostgreSQL requires SSL in transit; keep `sslmode=require` in the JDBC URL.
+- Flyway will create the backend tables automatically on first startup.
+- The current backend migrations already create `pgcrypto` and `uuid-ossp` where needed; you do not need to create those manually.
 
 ### Spaces
 
@@ -33,9 +70,18 @@ Required values:
 - `STORAGE_MINIO_ENDPOINT=https://<region>.digitaloceanspaces.com`
 - `STORAGE_MINIO_BUCKET=<bucket-name>`
 - `STORAGE_MINIO_REGION=<region>`
-- `STORAGE_MINIO_PUBLIC_URL=https://<bucket-name>.<region>.digitaloceanspaces.com`
+- `STORAGE_MINIO_PUBLIC_URL=https://<region>.digitaloceanspaces.com`
 
-If you enable the Spaces CDN, set `STORAGE_MINIO_PUBLIC_URL` to the CDN hostname instead.
+Create the bucket in the DigitalOcean control panel first, then generate Spaces access keys and set:
+
+- `STORAGE_MINIO_ACCESS_KEY=<spaces-access-key>`
+- `STORAGE_MINIO_SECRET_KEY=<spaces-secret-key>`
+
+Important:
+
+- This backend uses the MinIO client against any S3-compatible object store. On DigitalOcean, that means Spaces, not a separate MinIO server.
+- In the current code, `STORAGE_MINIO_PUBLIC_URL` is a base endpoint. The app appends `/<bucket>/<objectKey>` when building public image URLs.
+- If you use a CDN or custom domain later, keep that URL format in mind.
 
 ## Backend env vars you need to set
 
