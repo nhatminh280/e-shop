@@ -52,3 +52,5 @@ backend/e-shop/src/main/resources/data/*_seed_*.sql
 *-requirements.md
 *.jpg
 **/AGENTS.md
+.codex
+.agents

@@ -193,6 +193,12 @@ Tear it down after tests complete:
 docker compose -f docker-compose.test.yml down
 ```
 
+## DigitalOcean deployment
+
+The backend-only DigitalOcean App Platform spec is in [`.do/backend-app.yaml`](.do/backend-app.yaml).
+
+The DigitalOcean deployment guide is in [`docs/deploy-digitalocean.md`](docs/deploy-digitalocean.md).
+
 # RECOMMENDATION SYSTEM
 
 ## 1. Introduction
@@ -579,4 +585,3 @@ The API returns standard HTTP status codes:
 | 503         | Service unavailable (FAISS/Redis connection issues) |
 
 ---
-

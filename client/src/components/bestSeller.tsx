@@ -24,7 +24,11 @@ const BestSeller = () => {
         const data = await api.get(
           "/api/catalog/products/filter?page=2&size=12"
         );
-        const productsData = data.data.content || [];
+        const productsData = Array.isArray(data.data?.content)
+          ? data.data.content
+          : Array.isArray(data.data)
+            ? data.data
+            : [];
 
         const detailedProducts = await Promise.all(
           productsData.map(async (p: any) => {

@@ -32,9 +32,11 @@ export const Header = () => {
     const fetchCategories = async () => {
       try {
         const res = await api.get<Category[]>("/api/catalog/categories");
-        setCategories(res.data.filter((cat) => cat.active));
+        const categoryList = Array.isArray(res.data) ? res.data : [];
+        setCategories(categoryList.filter((cat) => cat.active));
       } catch (err) {
         console.error("Failed to fetch categories:", err);
+        setCategories([]);
       }
     };
 
