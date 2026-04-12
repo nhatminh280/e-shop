@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheKeys;
 import com.eshop.api.cache.CacheNames;
 import com.eshop.api.catalog.dto.PageResponse;
 import com.eshop.api.catalog.dto.ProductResponse;
@@ -29,7 +30,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -42,7 +42,7 @@ public class ProductService {
 
     @Cacheable(
         cacheNames = CacheNames.PUBLIC_PRODUCTS,
-        key = "T(com.eshop.api.catalog.service.ProductService).pageableCacheKey(#pageable)",
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).publicProductsPage(#pageable)",
         unless = "#result == null"
     )
     public PageResponse<ProductSummaryResponse> getProducts(Pageable pageable) {
@@ -157,19 +157,19 @@ public class ProductService {
 
     @Cacheable(
         cacheNames = CacheNames.PRODUCT_BY_SLUG,
-        key = "T(com.eshop.api.catalog.service.ProductService).normalizeSlugKey(#slug)",
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).productBySlug(#slug)",
         condition = "#slug != null && !#slug.isBlank()",
         unless = "#result == null"
     )
     public ProductResponse getProductBySlug(String slug) throws ProductNotFoundException {
-        String normalizedSlug = normalizeSlugKey(slug);
+        String normalizedSlug = CatalogCacheKeys.productBySlug(slug);
         Product product = productRepository.findWithDetailsBySlug(normalizedSlug)
             .orElseThrow(() -> new ProductNotFoundException(slug));
         return productMapper.toProductResponse(product);
     }
 
     private List<Integer> resolveCategoryHierarchy(String categorySlug) {
-        String normalizedSlug = normalizeSlugKey(categorySlug);
+        String normalizedSlug = CatalogCacheKeys.categoryBySlug(categorySlug);
 
         if (normalizedSlug == null || normalizedSlug.isBlank()) {
             throw new CategoryNotFoundException(categorySlug);
@@ -214,21 +214,6 @@ public class ProductService {
         }
 
         return normalized;
-    }
-
-    public static String normalizeSlugKey(String slug) {
-        return slug == null ? null : slug.trim();
-    }
-
-    public static String pageableCacheKey(Pageable pageable) {
-        if (pageable == null) {
-            return "null";
-        }
-
-        String sortKey = pageable.getSort().stream()
-            .map(order -> order.getProperty() + ":" + order.getDirection())
-            .collect(Collectors.joining(","));
-        return pageable.getPageNumber() + ":" + pageable.getPageSize() + ":" + sortKey;
     }
 
     private List<String> normalizeListParameter(List<String> rawValues) {

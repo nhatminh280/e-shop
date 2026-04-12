@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheInvalidationService;
 import com.eshop.api.catalog.dto.ProductVariantCreateRequest;
 import com.eshop.api.catalog.dto.ProductVariantResponse;
 import com.eshop.api.catalog.dto.ProductVariantStockAdjustmentRequest;
@@ -50,6 +51,7 @@ public class ProductVariantService {
     private final ProductVariantStockAdjustmentRepository stockAdjustmentRepository;
     private final UserRepository userRepository;
     private final ProductMapper productMapper;
+    private final CatalogCacheInvalidationService catalogCacheInvalidationService;
 
     public List<ProductVariantResponse> createVariants(UUID productId, ProductVariantCreateRequest request) {
         Product product = productRepository.findById(productId)
@@ -93,6 +95,7 @@ public class ProductVariantService {
             created.add(productMapper.toVariantResponse(saved));
         }
 
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(product.getSlug());
         return created;
     }
 
@@ -191,6 +194,7 @@ public class ProductVariantService {
             );
         }
 
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(saved.getProduct().getSlug());
         return productMapper.toVariantResponse(saved);
     }
 
@@ -206,7 +210,9 @@ public class ProductVariantService {
             throw new ProductVariantInUseException(variantId);
         }
 
+        String productSlug = variant.getProduct().getSlug();
         productVariantRepository.delete(variant);
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(productSlug);
         log.info("Deleted variant {} for product {}", variantId, productId);
     }
 
@@ -239,6 +245,7 @@ public class ProductVariantService {
             trim(request.notes()),
             adjustedBy
         );
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(variant.getProduct().getSlug());
         return toAdjustmentResponse(adjustment);
     }
 
@@ -266,6 +273,7 @@ public class ProductVariantService {
 
         variant.setActive(active);
         ProductVariant saved = productVariantRepository.save(variant);
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(saved.getProduct().getSlug());
         return productMapper.toVariantResponse(saved);
     }
 
