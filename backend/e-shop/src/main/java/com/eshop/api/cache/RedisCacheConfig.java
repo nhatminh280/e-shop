@@ -1,6 +1,5 @@
 package com.eshop.api.cache;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.util.Map;
@@ -13,6 +12,7 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 
 @Configuration
@@ -21,33 +21,38 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
 public class RedisCacheConfig {
 
     private final CacheProperties cacheProperties;
-    private final ObjectMapper objectMapper;
 
     @Bean
-    public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        RedisCacheConfiguration defaultConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+    public RedisSerializer<Object> redisCacheValueSerializer() {
+        GenericJackson2JsonRedisSerializer serializer = new GenericJackson2JsonRedisSerializer();
+        serializer.configure(mapper -> {
+            mapper.registerModule(new JavaTimeModule());
+            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        });
+        return serializer;
+    }
+
+    @Bean
+    public RedisCacheConfiguration redisCacheConfiguration(RedisSerializer<Object> redisCacheValueSerializer) {
+        return RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(cacheProperties.getDefaultTtl())
                 .computePrefixWith(cacheName -> cacheProperties.getNamespace() + "::" + cacheName + "::")
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
-                        new GenericJackson2JsonRedisSerializer(redisCacheObjectMapper())
-                ));
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(redisCacheValueSerializer));
+    }
 
+    @Bean
+    public RedisCacheManager cacheManager(
+            RedisConnectionFactory connectionFactory,
+            RedisCacheConfiguration redisCacheConfiguration) {
         Map<String, RedisCacheConfiguration> initialCacheConfigurations = CacheNames.phaseOneCacheNames().stream()
                 .collect(Collectors.toUnmodifiableMap(
                         cacheName -> cacheName,
-                        cacheName -> defaultConfiguration
+                        cacheName -> redisCacheConfiguration
                 ));
 
         return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(defaultConfiguration)
+                .cacheDefaults(redisCacheConfiguration)
                 .withInitialCacheConfigurations(initialCacheConfigurations)
                 .build();
-    }
-
-    private ObjectMapper redisCacheObjectMapper() {
-        ObjectMapper redisObjectMapper = objectMapper.copy();
-        redisObjectMapper.registerModule(new JavaTimeModule());
-        redisObjectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return redisObjectMapper;
     }
 }
