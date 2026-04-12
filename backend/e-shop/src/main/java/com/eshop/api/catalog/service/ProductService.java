@@ -169,11 +169,13 @@ public class ProductService {
     }
 
     private List<Integer> resolveCategoryHierarchy(String categorySlug) {
-        if (categorySlug == null || categorySlug.isBlank()) {
+        String normalizedSlug = normalizeSlugKey(categorySlug);
+
+        if (normalizedSlug == null || normalizedSlug.isBlank()) {
             throw new CategoryNotFoundException(categorySlug);
         }
 
-        Category category = categoryRepository.findBySlug(categorySlug)
+        Category category = categoryRepository.findBySlug(normalizedSlug)
             .orElseThrow(() -> new CategoryNotFoundException(categorySlug));
 
         return collectCategoryIds(category);

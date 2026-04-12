@@ -55,8 +55,10 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse createCategory(CategoryCreateRequest request) {
-        if (categoryRepository.existsBySlug(request.getSlug())) {
-            throw new CategoryAlreadyExistsException(request.getSlug());
+        String normalizedSlug = normalizeSlugKey(request.getSlug());
+
+        if (categoryRepository.existsBySlug(normalizedSlug)) {
+            throw new CategoryAlreadyExistsException(normalizedSlug);
         }
 
         Category parent = null;
@@ -67,7 +69,7 @@ public class CategoryService {
 
         Category category = Category.builder()
             .name(request.getName())
-            .slug(request.getSlug())
+            .slug(normalizedSlug)
             .parentCategory(parent)
             .displayOrder(request.getDisplayOrder() != null ? request.getDisplayOrder() : 0)
             .active(request.getActive() != null ? request.getActive() : Boolean.TRUE)
