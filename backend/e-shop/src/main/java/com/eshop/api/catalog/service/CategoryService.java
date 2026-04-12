@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CacheNames;
 import com.eshop.api.catalog.dto.CategoryCreateRequest;
 import com.eshop.api.catalog.dto.CategoryResponse;
 import com.eshop.api.catalog.model.Category;
@@ -7,11 +8,13 @@ import com.eshop.api.catalog.repository.CategoryRepository;
 import com.eshop.api.exception.CategoryAlreadyExistsException;
 import com.eshop.api.exception.CategoryNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +23,7 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
 
+    @Cacheable(cacheNames = CacheNames.ALL_CATEGORIES, key = "'all'", unless = "#result == null")
     public List<CategoryResponse> getAllCategories() {
         List<Category> categories = categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "displayOrder", "name"));
         return categories.stream()
@@ -27,6 +31,7 @@ public class CategoryService {
             .toList();
     }
 
+    @Cacheable(cacheNames = CacheNames.COMMON_CATEGORIES, key = "'common'", unless = "#result == null")
     public List<CategoryResponse> getCommonCategories() {
         List<Category> categories = categoryRepository
             .findByParentCategoryIsNotNullAndParentCategory_ParentCategoryIsNull(
@@ -37,8 +42,15 @@ public class CategoryService {
             .toList();
     }
 
+    @Cacheable(
+        cacheNames = CacheNames.CATEGORY_BY_SLUG,
+        key = "T(com.eshop.api.catalog.service.CategoryService).normalizeSlugKey(#slug)",
+        condition = "#slug != null && !#slug.isBlank()",
+        unless = "#result == null"
+    )
     public CategoryResponse getCategoryBySlug(String slug) {
-        Category category = categoryRepository.findBySlug(slug)
+        String normalizedSlug = normalizeSlugKey(slug);
+        Category category = categoryRepository.findBySlug(normalizedSlug)
             .orElseThrow(() -> new CategoryNotFoundException(slug));
         return toResponse(category);
     }
@@ -78,5 +90,9 @@ public class CategoryService {
             .parentCategoryId(parentId)
             .createdAt(category.getCreatedAt())
             .build();
+    }
+
+    public static String normalizeSlugKey(String slug) {
+        return slug == null ? null : slug.trim().toLowerCase(Locale.ROOT);
     }
 }

@@ -30,8 +30,11 @@ class RedisCacheConfigTests {
     @Test
     void cacheNamesExposePhaseOneCacheNames() {
         assertThat(CacheNames.phaseOneCacheNames()).containsExactly(
-                CacheNames.PRODUCTS,
-                CacheNames.CATEGORIES
+                CacheNames.ALL_CATEGORIES,
+                CacheNames.COMMON_CATEGORIES,
+                CacheNames.CATEGORY_BY_SLUG,
+                CacheNames.PUBLIC_PRODUCTS,
+                CacheNames.PRODUCT_BY_SLUG
         );
     }
 
@@ -51,8 +54,8 @@ class RedisCacheConfigTests {
             assertThat(context.getBean(CacheProperties.class).getNamespace()).isEqualTo("eshop::benchmark");
             assertThat(context.getBean(CacheProperties.class).getDefaultTtl()).isEqualTo(Duration.ofMinutes(30));
             assertThat(context.getBean(RedisCacheConfiguration.class).getTtl()).isEqualTo(Duration.ofMinutes(30));
-            assertThat(context.getBean(RedisCacheConfiguration.class).getKeyPrefixFor(CacheNames.PRODUCTS))
-                    .isEqualTo("eshop::benchmark::products::");
+            assertThat(context.getBean(RedisCacheConfiguration.class).getKeyPrefixFor(CacheNames.ALL_CATEGORIES))
+                    .isEqualTo("eshop::benchmark::catalog:categories:all::");
         });
     }
 

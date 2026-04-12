@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CacheNames;
 import com.eshop.api.catalog.dto.PageResponse;
 import com.eshop.api.catalog.dto.ProductResponse;
 import com.eshop.api.catalog.dto.ProductSummaryResponse;
@@ -14,6 +15,7 @@ import com.eshop.api.exception.InvalidPriceRangeException;
 import com.eshop.api.exception.InvalidSearchQueryException;
 import com.eshop.api.exception.ProductNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -27,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +40,11 @@ public class ProductService {
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
 
+    @Cacheable(
+        cacheNames = CacheNames.PUBLIC_PRODUCTS,
+        key = "T(com.eshop.api.catalog.service.ProductService).pageableCacheKey(#pageable)",
+        unless = "#result == null"
+    )
     public PageResponse<ProductSummaryResponse> getProducts(Pageable pageable) {
         Page<Product> page = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
         return productMapper.toPageResponse(page);
@@ -91,7 +99,8 @@ public class ProductService {
             || priceMax != null;
 
         if (!hasAnyFilter) {
-            return getProducts(pageable);
+            Page<Product> page = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
+            return productMapper.toPageResponse(page);
         }
 
         boolean requiresAdvancedFiltering = !normalizedColors.isEmpty()
@@ -146,8 +155,15 @@ public class ProductService {
         return productMapper.toPageResponse(page);
     }
 
+    @Cacheable(
+        cacheNames = CacheNames.PRODUCT_BY_SLUG,
+        key = "T(com.eshop.api.catalog.service.ProductService).normalizeSlugKey(#slug)",
+        condition = "#slug != null && !#slug.isBlank()",
+        unless = "#result == null"
+    )
     public ProductResponse getProductBySlug(String slug) throws ProductNotFoundException {
-        Product product = productRepository.findWithDetailsBySlug(slug)
+        String normalizedSlug = normalizeSlugKey(slug);
+        Product product = productRepository.findWithDetailsBySlug(normalizedSlug)
             .orElseThrow(() -> new ProductNotFoundException(slug));
         return productMapper.toProductResponse(product);
     }
@@ -198,6 +214,21 @@ public class ProductService {
         return normalized;
     }
 
+    public static String normalizeSlugKey(String slug) {
+        return slug == null ? null : slug.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public static String pageableCacheKey(Pageable pageable) {
+        if (pageable == null) {
+            return "null";
+        }
+
+        String sortKey = pageable.getSort().stream()
+            .map(order -> order.getProperty() + ":" + order.getDirection())
+            .collect(Collectors.joining(","));
+        return pageable.getPageNumber() + ":" + pageable.getPageSize() + ":" + sortKey;
+    }
+
     private List<String> normalizeListParameter(List<String> rawValues) {
         if (rawValues == null || rawValues.isEmpty()) {
             return List.of();
@@ -211,5 +242,4 @@ public class ProductService {
             .distinct()
             .toList();
     }
-
 }
