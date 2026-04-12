@@ -56,6 +56,8 @@ class RedisCacheConfigTests {
             assertThat(context.getBean(RedisCacheConfiguration.class).getTtl()).isEqualTo(Duration.ofMinutes(30));
             assertThat(context.getBean(RedisCacheConfiguration.class).getKeyPrefixFor(CacheNames.ALL_CATEGORIES))
                     .isEqualTo("eshop::benchmark::catalog:categories:all::");
+            assertThat(context.getBean(RedisCacheManager.class).getCacheNames())
+                    .containsExactlyInAnyOrderElementsOf(CacheNames.phaseOneCacheNames());
         });
     }
 
