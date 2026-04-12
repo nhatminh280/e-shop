@@ -35,6 +35,11 @@ services:
       APP_ACTIVATION_BASE_URL: ${APP_ACTIVATION_BASE_URL:-http://localhost:8080/api/auth/activate}
       APP_ACTIVATION_TOKEN_EXPIRATION_MINUTES: ${APP_ACTIVATION_TOKEN_EXPIRATION_MINUTES:-1440}
       APP_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES: ${APP_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES:-15}
+      APP_CACHE_NAMESPACE: ${APP_CACHE_NAMESPACE:-eshop::local}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ""
+      SPRING_DATA_REDIS_SSL_ENABLED: false
       STORAGE_MINIO_ENDPOINT: http://minio:9000
       STORAGE_MINIO_ACCESS_KEY: admin
       STORAGE_MINIO_SECRET_KEY: admin123
@@ -46,7 +51,17 @@ services:
       - "8080:8080"
     depends_on:
       - postgres
+      - redis
       - minio
+    restart: unless-stopped
+  redis:
+    image: redis:7.4-alpine
+    container_name: eshop-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
@@ -63,4 +78,5 @@ services:
     restart: unless-stopped
 volumes:
   postgres_data:
+  redis_data:
   minio_data:
