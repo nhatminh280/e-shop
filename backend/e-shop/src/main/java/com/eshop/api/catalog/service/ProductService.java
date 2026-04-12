@@ -215,7 +215,7 @@ public class ProductService {
     }
 
     public static String normalizeSlugKey(String slug) {
-        return slug == null ? null : slug.trim().toLowerCase(Locale.ROOT);
+        return slug == null ? null : slug.trim();
     }
 
     public static String pageableCacheKey(Pageable pageable) {

@@ -14,8 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Locale;
-
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -93,6 +91,6 @@ public class CategoryService {
     }
 
     public static String normalizeSlugKey(String slug) {
-        return slug == null ? null : slug.trim().toLowerCase(Locale.ROOT);
+        return slug == null ? null : slug.trim();
     }
 }
