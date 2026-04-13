@@ -203,8 +203,8 @@ Baseline run:
 For a truly cold benchmark, use one of these approaches:
 
 - deploy with a fresh `APP_CACHE_NAMESPACE`
-- the app stores cache keys as `<APP_CACHE_NAMESPACE>::<cache-name>::...`, so any manual cleanup should target that full prefix
-- if you need to clear a namespace, delete keys by prefix with `redis-cli --scan --pattern 'eshop::benchmark::*' | xargs -r redis-cli UNLINK`
+- the app stores cache keys as `<APP_CACHE_NAMESPACE>::v5::<cache-name>::...`, so any manual cleanup should target that full prefix
+- if you need to clear a namespace, delete keys by prefix with `redis-cli --scan --pattern 'eshop::benchmark::v5::*' | xargs -r redis-cli UNLINK`
 - create a fresh cache instance for the run
 
 For a warm benchmark, use the k6 priming mode in the script below or send a few manual requests to each read endpoint before the timed run.

@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -34,7 +35,7 @@ public class CategoryService {
         List<Category> categories = categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "displayOrder", "name"));
         return categories.stream()
             .map(this::toResponse)
-            .toList();
+            .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
     @Cacheable(
@@ -49,7 +50,7 @@ public class CategoryService {
 
         return categories.stream()
             .map(this::toResponse)
-            .toList();
+            .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
     @Cacheable(

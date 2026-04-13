@@ -1,8 +1,18 @@
 package com.eshop.api.cache;
 
+import com.eshop.api.catalog.dto.CategoryResponse;
+import com.eshop.api.catalog.dto.CategorySummary;
+import com.eshop.api.catalog.dto.PageResponse;
+import com.eshop.api.catalog.dto.ProductResponse;
+import com.eshop.api.catalog.dto.ProductSummaryResponse;
+import com.eshop.api.catalog.enums.Gender;
+import com.eshop.api.catalog.enums.ProductStatus;
+import java.util.ArrayList;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -55,7 +65,7 @@ class RedisCacheConfigTests {
             assertThat(context.getBean(CacheProperties.class).getDefaultTtl()).isEqualTo(Duration.ofMinutes(30));
             assertThat(context.getBean(RedisCacheConfiguration.class).getTtl()).isEqualTo(Duration.ofMinutes(30));
             assertThat(context.getBean(RedisCacheConfiguration.class).getKeyPrefixFor(CacheNames.ALL_CATEGORIES))
-                    .isEqualTo("eshop::benchmark::catalog:categories:all::");
+                    .isEqualTo("eshop::benchmark::v5::catalog:categories:all::");
             assertThat(context.getBean(RedisCacheManager.class).getCacheNames())
                     .containsExactlyInAnyOrderElementsOf(CacheNames.phaseOneCacheNames());
         });
@@ -95,6 +105,117 @@ class RedisCacheConfigTests {
             assertThat(payload.items().getFirst()).isInstanceOf(CatalogEntry.class);
             assertThat(payload.items().getFirst().updatedAt())
                     .isEqualTo(LocalDateTime.of(2026, 4, 12, 10, 30));
+        });
+    }
+
+    @Test
+    void serializerRoundTripsCategoryResponseList() {
+        contextRunner.run(context -> {
+            @SuppressWarnings("unchecked")
+            RedisSerializer<Object> serializer = (RedisSerializer<Object>) context.getBean(RedisSerializer.class);
+            List<CategoryResponse> original = new ArrayList<>(List.of(
+                    CategoryResponse.builder()
+                            .id(1)
+                            .name("Women")
+                            .slug("women")
+                            .displayOrder(0)
+                            .active(Boolean.TRUE)
+                            .parentCategoryId(null)
+                            .createdAt(Instant.parse("2026-04-12T10:30:00Z"))
+                            .build()
+            ));
+
+            byte[] serialized = serializer.serialize(original);
+            Object deserialized = serializer.deserialize(serialized);
+
+            assertThat(deserialized).isInstanceOf(List.class);
+            @SuppressWarnings("unchecked")
+            List<CategoryResponse> payload = (List<CategoryResponse>) deserialized;
+            assertThat(payload).hasSize(1);
+            assertThat(payload.getFirst()).isInstanceOf(CategoryResponse.class);
+            assertThat(payload.getFirst().getSlug()).isEqualTo("women");
+        });
+    }
+
+    @Test
+    void serializerRoundTripsProductPageResponse() {
+        contextRunner.run(context -> {
+            @SuppressWarnings("unchecked")
+            RedisSerializer<Object> serializer = (RedisSerializer<Object>) context.getBean(RedisSerializer.class);
+            PageResponse<ProductSummaryResponse> original = PageResponse.<ProductSummaryResponse>builder()
+                    .content(List.of(ProductSummaryResponse.builder()
+                            .id(UUID.fromString("1df3fb3f-3ad4-4b63-a659-5fe0ad403ce7"))
+                            .name("Classic Coat")
+                            .slug("classic-coat")
+                            .description("Wool coat")
+                            .status(ProductStatus.ACTIVE)
+                            .featured(Boolean.TRUE)
+                            .gender(Gender.womens)
+                            .productType("outerwear")
+                            .createdAt(Instant.parse("2026-04-12T10:30:00Z"))
+                            .updatedAt(Instant.parse("2026-04-12T10:45:00Z"))
+                            .category(CategorySummary.builder()
+                                    .id(10)
+                                    .name("Women")
+                                    .slug("women")
+                                    .build())
+                            .build()))
+                    .totalElements(1)
+                    .totalPages(1)
+                    .page(0)
+                    .size(12)
+                    .hasNext(false)
+                    .hasPrevious(false)
+                    .build();
+
+            byte[] serialized = serializer.serialize(original);
+            Object deserialized = serializer.deserialize(serialized);
+
+            assertThat(deserialized).isInstanceOf(PageResponse.class);
+            @SuppressWarnings("unchecked")
+            PageResponse<ProductSummaryResponse> payload = (PageResponse<ProductSummaryResponse>) deserialized;
+            assertThat(payload.getContent()).hasSize(1);
+            assertThat(payload.getContent().getFirst()).isInstanceOf(ProductSummaryResponse.class);
+            assertThat(payload.getContent().getFirst().getSlug()).isEqualTo("classic-coat");
+            assertThat(payload.getContent().getFirst().getCreatedAt()).isEqualTo(Instant.parse("2026-04-12T10:30:00Z"));
+        });
+    }
+
+    @Test
+    void serializerRoundTripsProductResponse() {
+        contextRunner.run(context -> {
+            @SuppressWarnings("unchecked")
+            RedisSerializer<Object> serializer = (RedisSerializer<Object>) context.getBean(RedisSerializer.class);
+            ProductResponse original = ProductResponse.builder()
+                    .id(UUID.fromString("1df3fb3f-3ad4-4b63-a659-5fe0ad403ce7"))
+                    .name("Classic Coat")
+                    .slug("classic-coat")
+                    .description("Wool coat")
+                    .status(ProductStatus.ACTIVE)
+                    .featured(Boolean.TRUE)
+                    .gender(Gender.womens)
+                    .taxonomyPath(List.of("women", "coats"))
+                    .productType("outerwear")
+                    .createdAt(Instant.parse("2026-04-12T10:30:00Z"))
+                    .updatedAt(Instant.parse("2026-04-12T10:45:00Z"))
+                    .category(CategorySummary.builder()
+                            .id(10)
+                            .name("Women")
+                            .slug("women")
+                            .build())
+                    .tags(List.of())
+                    .variants(List.of())
+                    .images(List.of())
+                    .build();
+
+            byte[] serialized = serializer.serialize(original);
+            Object deserialized = serializer.deserialize(serialized);
+
+            assertThat(deserialized).isInstanceOf(ProductResponse.class);
+            ProductResponse payload = (ProductResponse) deserialized;
+            assertThat(payload.getSlug()).isEqualTo("classic-coat");
+            assertThat(payload.getTaxonomyPath()).containsExactly("women", "coats");
+            assertThat(payload.getCreatedAt()).isEqualTo(Instant.parse("2026-04-12T10:30:00Z"));
         });
     }
 
