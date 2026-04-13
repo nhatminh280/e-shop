@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheInvalidationService;
 import com.eshop.api.catalog.dto.PageResponse;
 import com.eshop.api.catalog.dto.ProductResponse;
 import com.eshop.api.catalog.dto.ProductStatusUpdateRequest;
@@ -42,6 +43,7 @@ public class AdminProductService {
     private final CategoryRepository categoryRepository;
     private final ProductTagRepository productTagRepository;
     private final ProductMapper productMapper;
+    private final CatalogCacheInvalidationService catalogCacheInvalidationService;
 
     @Transactional(readOnly = true)
     public PageResponse<ProductSummaryResponse> listProducts(
@@ -134,6 +136,7 @@ public class AdminProductService {
         Product hydrated = productRepository.findWithDetailsBySlug(saved.getSlug())
             .orElseThrow(() -> new ProductNotFoundException(saved.getSlug()));
 
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(hydrated.getSlug());
         log.info("Created product {} ({})", hydrated.getId(), hydrated.getSlug());
         return productMapper.toProductResponse(hydrated);
     }
@@ -142,6 +145,7 @@ public class AdminProductService {
     public ProductResponse updateProduct(UUID productId, ProductUpsertRequest request) {
         Product product = productRepository.findById(productId)
             .orElseThrow(() -> new ProductNotFoundException(productId));
+        String previousSlug = product.getSlug();
 
         String normalizedSlug = normalizeSlug(request.slug());
         if (!product.getSlug().equalsIgnoreCase(normalizedSlug)
@@ -171,6 +175,7 @@ public class AdminProductService {
         Product hydrated = productRepository.findWithDetailsBySlug(saved.getSlug())
             .orElseThrow(() -> new ProductNotFoundException(saved.getSlug()));
 
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(previousSlug, hydrated.getSlug());
         log.info("Updated product {} ({})", hydrated.getId(), hydrated.getSlug());
         return productMapper.toProductResponse(hydrated);
     }
@@ -186,6 +191,7 @@ public class AdminProductService {
         Product hydrated = productRepository.findWithDetailsBySlug(saved.getSlug())
             .orElseThrow(() -> new ProductNotFoundException(saved.getSlug()));
 
+        catalogCacheInvalidationService.invalidatePublicProductCatalog(hydrated.getSlug());
         log.info("Updated product {} status to {}", hydrated.getId(), hydrated.getStatus());
         return productMapper.toProductResponse(hydrated);
     }

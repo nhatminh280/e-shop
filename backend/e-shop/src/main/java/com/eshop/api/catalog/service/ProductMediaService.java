@@ -1,5 +1,6 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheInvalidationService;
 import com.eshop.api.catalog.dto.ColorResponse;
 import com.eshop.api.catalog.dto.ProductColorMediaResponse;
 import com.eshop.api.catalog.dto.ProductImageResponse;
@@ -52,6 +53,7 @@ public class ProductMediaService {
     private final ColorRepository colorRepository;
     private final MinioStorageService minioStorageService;
     private final ProductMapper productMapper;
+    private final CatalogCacheInvalidationService catalogCacheInvalidationService;
 
     public ProductImageResponse uploadProductImage(UUID productId,
                                                    MultipartFile file,
@@ -94,6 +96,7 @@ public class ProductMediaService {
         }
 
         ProductImage saved = productImageRepository.save(productImage);
+        catalogCacheInvalidationService.invalidateProductDetail(product.getSlug());
         log.info("Uploaded image {} for product {}", saved.getId(), productId);
         return productMapper.toImageResponse(saved);
     }
@@ -184,6 +187,7 @@ public class ProductMediaService {
         }
 
         ProductImage saved = productImageRepository.save(image);
+        catalogCacheInvalidationService.invalidateProductDetail(saved.getProduct().getSlug());
         log.info("Updated image {} for product {}", imageId, productId);
         return productMapper.toImageResponse(saved);
     }
@@ -196,7 +200,9 @@ public class ProductMediaService {
             throw new ProductImageNotFoundException(imageId);
         }
 
+        String productSlug = image.getProduct().getSlug();
         productImageRepository.delete(image);
+        catalogCacheInvalidationService.invalidateProductDetail(productSlug);
         log.info("Deleted image {} for product {}", imageId, productId);
     }
 

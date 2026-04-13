@@ -1,5 +1,8 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheInvalidationService;
+import com.eshop.api.cache.CatalogCacheKeys;
+import com.eshop.api.cache.CacheNames;
 import com.eshop.api.catalog.dto.CategoryCreateRequest;
 import com.eshop.api.catalog.dto.CategoryResponse;
 import com.eshop.api.catalog.model.Category;
@@ -7,10 +10,12 @@ import com.eshop.api.catalog.repository.CategoryRepository;
 import com.eshop.api.exception.CategoryAlreadyExistsException;
 import com.eshop.api.exception.CategoryNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -19,14 +24,25 @@ import java.util.List;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final CatalogCacheInvalidationService catalogCacheInvalidationService;
 
+    @Cacheable(
+        cacheNames = CacheNames.ALL_CATEGORIES,
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).allCategoriesList()",
+        unless = "#result == null"
+    )
     public List<CategoryResponse> getAllCategories() {
         List<Category> categories = categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "displayOrder", "name"));
         return categories.stream()
             .map(this::toResponse)
-            .toList();
+            .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
+    @Cacheable(
+        cacheNames = CacheNames.COMMON_CATEGORIES,
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).commonCategoriesList()",
+        unless = "#result == null"
+    )
     public List<CategoryResponse> getCommonCategories() {
         List<Category> categories = categoryRepository
             .findByParentCategoryIsNotNullAndParentCategory_ParentCategoryIsNull(
@@ -34,19 +50,28 @@ public class CategoryService {
 
         return categories.stream()
             .map(this::toResponse)
-            .toList();
+            .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
     }
 
+    @Cacheable(
+        cacheNames = CacheNames.CATEGORY_BY_SLUG,
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).categoryBySlug(#slug)",
+        condition = "#slug != null && !#slug.isBlank()",
+        unless = "#result == null"
+    )
     public CategoryResponse getCategoryBySlug(String slug) {
-        Category category = categoryRepository.findBySlug(slug)
+        String normalizedSlug = CatalogCacheKeys.categoryBySlug(slug);
+        Category category = categoryRepository.findBySlug(normalizedSlug)
             .orElseThrow(() -> new CategoryNotFoundException(slug));
         return toResponse(category);
     }
 
     @Transactional
     public CategoryResponse createCategory(CategoryCreateRequest request) {
-        if (categoryRepository.existsBySlug(request.getSlug())) {
-            throw new CategoryAlreadyExistsException(request.getSlug());
+        String normalizedSlug = CatalogCacheKeys.categoryBySlug(request.getSlug());
+
+        if (categoryRepository.existsBySlug(normalizedSlug)) {
+            throw new CategoryAlreadyExistsException(normalizedSlug);
         }
 
         Category parent = null;
@@ -57,13 +82,14 @@ public class CategoryService {
 
         Category category = Category.builder()
             .name(request.getName())
-            .slug(request.getSlug())
+            .slug(normalizedSlug)
             .parentCategory(parent)
             .displayOrder(request.getDisplayOrder() != null ? request.getDisplayOrder() : 0)
             .active(request.getActive() != null ? request.getActive() : Boolean.TRUE)
             .build();
 
         Category saved = categoryRepository.save(category);
+        catalogCacheInvalidationService.invalidateCategoryCatalog(saved.getSlug());
         return toResponse(saved);
     }
 
@@ -79,4 +105,5 @@ public class CategoryService {
             .createdAt(category.getCreatedAt())
             .build();
     }
+
 }

@@ -36,6 +36,30 @@ services:
         value: replace-me
         scope: RUN_TIME
         type: SECRET
+      - key: SPRING_DATA_REDIS_HOST
+        value: redis-cache.example.internal
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SPRING_DATA_REDIS_PORT
+        value: "6379"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: SPRING_DATA_REDIS_PASSWORD
+        value: replace-me-with-redis-password
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPRING_DATA_REDIS_SSL_ENABLED
+        value: "false"
+        scope: RUN_TIME
+        type: GENERAL
+      - key: APP_CACHE_NAMESPACE
+        value: eshop::prod
+        scope: RUN_TIME
+        type: GENERAL
+      - key: APP_CACHE_DEFAULT_TTL
+        value: 15m
+        scope: RUN_TIME
+        type: GENERAL
       - key: JWT_SECRET
         value: replace-me-with-a-long-random-secret
         scope: RUN_TIME

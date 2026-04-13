@@ -1,5 +1,7 @@
 package com.eshop.api.catalog.service;
 
+import com.eshop.api.cache.CatalogCacheKeys;
+import com.eshop.api.cache.CacheNames;
 import com.eshop.api.catalog.dto.PageResponse;
 import com.eshop.api.catalog.dto.ProductResponse;
 import com.eshop.api.catalog.dto.ProductSummaryResponse;
@@ -14,6 +16,7 @@ import com.eshop.api.exception.InvalidPriceRangeException;
 import com.eshop.api.exception.InvalidSearchQueryException;
 import com.eshop.api.exception.ProductNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,6 +40,11 @@ public class ProductService {
     private final CategoryRepository categoryRepository;
     private final ProductMapper productMapper;
 
+    @Cacheable(
+        cacheNames = CacheNames.PUBLIC_PRODUCTS,
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).publicProductsPage(#pageable)",
+        unless = "#result == null"
+    )
     public PageResponse<ProductSummaryResponse> getProducts(Pageable pageable) {
         Page<Product> page = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
         return productMapper.toPageResponse(page);
@@ -91,7 +99,8 @@ public class ProductService {
             || priceMax != null;
 
         if (!hasAnyFilter) {
-            return getProducts(pageable);
+            Page<Product> page = productRepository.findByStatus(ProductStatus.ACTIVE, pageable);
+            return productMapper.toPageResponse(page);
         }
 
         boolean requiresAdvancedFiltering = !normalizedColors.isEmpty()
@@ -146,18 +155,27 @@ public class ProductService {
         return productMapper.toPageResponse(page);
     }
 
+    @Cacheable(
+        cacheNames = CacheNames.PRODUCT_BY_SLUG,
+        key = "T(com.eshop.api.cache.CatalogCacheKeys).productBySlug(#slug)",
+        condition = "#slug != null && !#slug.isBlank()",
+        unless = "#result == null"
+    )
     public ProductResponse getProductBySlug(String slug) throws ProductNotFoundException {
-        Product product = productRepository.findWithDetailsBySlug(slug)
+        String normalizedSlug = CatalogCacheKeys.productBySlug(slug);
+        Product product = productRepository.findWithDetailsBySlug(normalizedSlug)
             .orElseThrow(() -> new ProductNotFoundException(slug));
         return productMapper.toProductResponse(product);
     }
 
     private List<Integer> resolveCategoryHierarchy(String categorySlug) {
-        if (categorySlug == null || categorySlug.isBlank()) {
+        String normalizedSlug = CatalogCacheKeys.categoryBySlug(categorySlug);
+
+        if (normalizedSlug == null || normalizedSlug.isBlank()) {
             throw new CategoryNotFoundException(categorySlug);
         }
 
-        Category category = categoryRepository.findBySlug(categorySlug)
+        Category category = categoryRepository.findBySlug(normalizedSlug)
             .orElseThrow(() -> new CategoryNotFoundException(categorySlug));
 
         return collectCategoryIds(category);
@@ -211,5 +229,4 @@ public class ProductService {
             .distinct()
             .toList();
     }
-
 }
