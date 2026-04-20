@@ -71,6 +71,21 @@ class RedisCacheConfigTests {
         });
     }
 
+    @Test
+    void cacheManagerUsesScanBatchStrategyForCacheClears() {
+        contextRunner.run(context -> {
+            RedisCacheManager cacheManager = context.getBean(RedisCacheManager.class);
+            Object cacheWriter = readField(cacheManager, "cacheWriter");
+
+            assertThat(cacheWriter.getClass().getName())
+                    .isEqualTo("org.springframework.data.redis.cache.DefaultRedisCacheWriter");
+            Object batchStrategy = readField(cacheWriter, "batchStrategy");
+
+            assertThat(batchStrategy.getClass().getName())
+                    .isEqualTo("org.springframework.data.redis.cache.BatchStrategies$Scan");
+        });
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class TestRedisConnectionConfiguration {
 
@@ -253,5 +268,15 @@ class RedisCacheConfigTests {
             current = current.getCause();
         }
         return current;
+    }
+
+    private static Object readField(Object target, String fieldName) {
+        try {
+            var field = target.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Failed to read field '%s' from %s".formatted(fieldName, target.getClass()), exception);
+        }
     }
 }
