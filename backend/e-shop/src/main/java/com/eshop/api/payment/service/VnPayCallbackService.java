@@ -59,7 +59,7 @@ public class VnPayCallbackService {
             .orElseThrow(() -> new PaymentValidationException("Order not found: " + orderNumber));
 
         PaymentTransaction transaction = paymentTransactionRepository
-            .findTopByOrder_OrderNumberOrderByCreatedAtDesc(orderNumber)
+            .findTopByOrderNumberWithLock(orderNumber)
             .orElseThrow(() -> new PaymentValidationException("Payment transaction not found for order: " + orderNumber));
 
         boolean alreadyCaptured = transaction.getStatus() == PaymentStatus.CAPTURED;
