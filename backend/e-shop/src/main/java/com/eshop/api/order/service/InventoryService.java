@@ -42,6 +42,7 @@ public class InventoryService {
                 throw new InsufficientInventoryException(variant.getId(), requested, available);
             }
             variant.setQuantityInStock(available - requested);
+            productVariantRepository.save(variant);
         }
     }
 
@@ -58,6 +59,7 @@ public class InventoryService {
             }
             int available = Objects.requireNonNullElse(variant.getQuantityInStock(), 0);
             variant.setQuantityInStock(available + quantity);
+            productVariantRepository.save(variant);
         }
     }
 
