@@ -34,6 +34,17 @@ services:
     networks:
       - eshop-network
 
+  # Qdrant vector database
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    ports:
+      - "${RECOM_QDRANT_HTTP_PORT:-6333}:6333"
+      - "${RECOM_QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - eshop-network
+
   # SCHEDULER SERVICE
   scheduler:
     build:
@@ -139,7 +150,30 @@ services:
     profiles:
       - workflow
 
-  # Build FAISS
+  # Build Qdrant collection
+  build-qdrant:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["build-qdrant"]
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=product_variants_v1
+    volumes:
+      - ../etl/data:/app/data
+      - ../etl/logs:/app/logs
+      - ../etl/Content_Base_Model:/app/Content_Base_Model
+    depends_on:
+      qdrant:
+        condition: service_started
+    networks:
+      - eshop-network
+    profiles:
+      - build-index
+
+  # Legacy FAISS builder kept for benchmark/rollback comparisons
   build-faiss:
     build:
       context: ..
@@ -152,17 +186,20 @@ services:
     networks:
       - eshop-network
     profiles:
-      - build-index
+      - legacy-faiss
 
-  # FAISS API
+  # Recommendation API
   api:
     build:
       context: ..
       dockerfile: Docker/Dockerfile
-    command: uvicorn Content_Base_Model.faiss_api:eshop --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn Content_Base_Model.recommendation_api:eshop --host 0.0.0.0 --port 8000 --reload
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=product_variants_v1
       - DB_HOST=postgres
       - DB_PORT=5432
     ports:
@@ -175,6 +212,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_started
       postgres:
         condition: service_healthy
     networks:
@@ -205,6 +244,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  qdrant_data:
     driver: local
 
 networks:
