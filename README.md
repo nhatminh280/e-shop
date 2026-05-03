@@ -223,26 +223,7 @@ Source UML: [`recomender/recommendation_flow.puml`](recomender/recommendation_fl
 
 ![Recommendation system UML](https://www.plantuml.com/plantuml/svg/VLTjRzis4FxkNq5a6B1XJPmsJHiOs02_2GsGR5xSRbyC6BH4srmeKYEfkDdG_xxZYoYIjfSFZdJtt0iV7e-dWQQQ4JHjfIHSeoTIYheclCAQ2ewMhqgJ6XLC70O3zKnvWoMkqGQNppifMbvD1HCIVLVOlmYXzhWI1yftQ8kP8f76cfL2SYBHNIIlo1QtJ1U2wrznJT1OKimYFUJL20uvBlKh92n9gJ7VCHBd5OJetm52awCixufnCJKQ8IiYlVJcvltRszl1jzWHB1zli3hZPpujPiLjxkVw_SUxsu-fdvA9jZhZf2W-06MPatUt7sxc4-Caf72n44hl95d-_h3YFpIx5rYaa3zU8ApGR1BXdaX55K1ANEw9qrlHOD3pSh7KU4VGsn6QVmPtikLhejbLyshX8BF9HlZvLorngIqZQ2j53J4TrYbIzAIbh4AKQs9qK47gpOgtYiZrbc3TIcBUAPHKUBU-FalCrLR8ElKs4mVE1AvG8qNLGXAqXkITIQTBBHvnuq582_I2eOQuTWQWkhSQGsvaif2Y94gH2irWYIiET0pDOeTDfx3cFImZA5dDLQbUBFmUf8KNPlY8dAlccJbu94pX2Na1_mMamVst4nlyReIc3_SBDAytfAhW749Xb8msQz89rWrj2AEST9jlyVdkyr9K9EL_gCbNlU87glVMnXc3RmVEqh5UVsjrq-e0TAzvB9kUPJFagAvubvpnNszI2x-_Qrhrm3-SxBuwpSlD27rwtKXQeJ-5VDv2NrlnARGSw2lh2PoYzICiWGqFe2mUnA7ZfWFdEK_cJvzHJJIsnoFaRMqcH6QdesWLRF2AVxp-th7z4xg1nyxUMZbCbhjFEQBHIKuJkRUwKomwgoCUlS4fEft5EJRVZqV87VbYVBzSGXbNvEj9GZS6jTvYgjIQ6bJ7h3KlZFo8M-lOTJj4dMVRW5owFTlA7o50M9iiLPTQThXj9evmysIqPsZSCgolChYDbQ9ht3JckWj7r08VdTHavAw22y_DfMdP5Helxa_IvOZ23GMQLdolTJCQ3faeCTl3PJ2wkxw-ja70_jIsJ4QcfLAE7kXkhul75Q-DspLqRCuXdw6N1q6t6rwUKx6G1Eup4jI6GaLqR39pejHksJ2gaRQf3A4TC_ZLH2M65fEQPRap0SNnCveidc8x2ygw5KHeiIOh3WcNr1ma20WZ3MOcylZBD7PWq5cfTEiRIqstq8wLgnYx9ogs3O2SAMRqstfj-GwruAsidzDupsXkuLajACmvwIrIhNt5gQCelkOIlDq3q_NtLC5vUisDFZbnLjEsQBhsTFMN4Zm9v1LHTI-8111cz1yexdIMNF6ENRYxNinHOVYLoAGKd2AzFnWrS-aGpI_LNZJTPG2omM0sGPUNluH9f1jLZAoVACAJbOUn8SmMHjhF1k79ofDRF7MKtDYfAhcS1x4Fguwkolwnrq1ppiJHbNRipTuotj0A_0NI6yLIWuxVtJyhwU-68w6D7FH--Q7R1aokw1zToBvpdj9qPJleSLPfMbmC248xsuOtNmks8SPxOwLPZuetw9J-YEHC7zETgTBN6E7wNFmIQrqtYrzYhMrLqNEiSqtbZ3Bk7-ViFUzdr5rZE6VTzO11d4woRd-eZpFw7rIyrnd2RtGcxOiXxoM-WVZYG2EaQ4qPbc6ebUJl5kwaWT7wKsWCHl356L_LCkbcAd6SnWJJ9kw3NO0CbSGoO_vbPfN5uq8Jj15QmmWajhRIKVXkdudo6JweLOsbleIlEcIcrH40p2UT2MJ6JTCkO60T-d7Id3mx6_bp0x6G2N8KAgCKXJbW0tslt2DWdjOD8v2jXimn-Db3crRunRnrL-KRCDp0j0g53mOG0Xse9FPhKI2z9wZqQ-aN4JvH-jp-0m00)
 
-    Product Data
-    │
-    ├─── Images + Text ────→ CLIP ────→ 512D embedding
-    │
-    └─── Metadata ─────────→ BERT ────→ 512D embedding
-         (category, color,
-          price, rating)
-                    │
-                    ↓
-        Hybrid = α × CLIP + (1-α) × BERT
-                    │
-                    ↓ (L2 normalize)
-                    │
-        ┌───────────┴───────────┐
-        ↓                       ↓
-    FAISS Index          PostgreSQL (backup)
-        ↓
-    FastAPI Server ← Redis Cache
-        ↓
-    REST API Endpoints
+
 
 - **Feature Extraction**:
 
