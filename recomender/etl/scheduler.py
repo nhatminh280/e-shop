@@ -334,7 +334,7 @@ class PipelineScheduler:
             'etl': {
                 'enabled': True,
                 'schedule': 'daily',
-                'time': '02:00',  # 2 AM
+                'time': '10:30',  # 2 AM
                 'lookback_days': 90
             },
             'clip_embedding': {
@@ -345,7 +345,7 @@ class PipelineScheduler:
             'bert_hybrid': {
                 'enabled': True,
                 'schedule': 'after_clip',  # Run after CLIP
-                'fusion_alpha': 0.7
+                'fusion_alpha': 0.6
             },
             'qdrant_index': {
                 'enabled': True,
@@ -438,7 +438,7 @@ class PipelineScheduler:
         # Health Check Schedule
         if self.config['health_check']['enabled']:
             if self.config['health_check']['schedule'] == 'hourly':
-                schedule.every().hour.do(self.run_task, 'health_check')
+                schedule.every(1).hour.do(self.run_task, 'health_check')
                 logger.info("Health check scheduled hourly")
     
     def start_daemon(self):
@@ -537,6 +537,7 @@ Examples:
                        help='Path to custom configuration JSON file')
     parser.add_argument('--status', action='store_true',
                        help='Show scheduler status')
+    
     
     args = parser.parse_args()
     
