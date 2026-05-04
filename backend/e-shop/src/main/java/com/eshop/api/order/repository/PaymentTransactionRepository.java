@@ -2,9 +2,13 @@ package com.eshop.api.order.repository;
 
 import com.eshop.api.order.enums.PaymentStatus;
 import com.eshop.api.order.model.PaymentTransaction;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -19,6 +23,11 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     Optional<PaymentTransaction> findByIdempotencyKey(String idempotencyKey);
 
     Optional<PaymentTransaction> findTopByOrder_OrderNumberOrderByCreatedAtDesc(String orderNumber);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("SELECT pt FROM PaymentTransaction pt WHERE pt.order.orderNumber = :orderNumber ORDER BY pt.createdAt DESC LIMIT 1")
+    Optional<PaymentTransaction> findTopByOrderNumberWithLock(@Param("orderNumber") String orderNumber);
 
     java.util.List<PaymentTransaction> findByOrder_OrderNumberOrderByCreatedAtDesc(String orderNumber);
 
