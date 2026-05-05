@@ -35,7 +35,7 @@ WORKDIR /app
 FROM base as dependencies
 
 # Copy requirements
-COPY ../requirements.txt .
+COPY requirements.txt .
 
 # Install Python packages
 RUN pip install --upgrade pip setuptools wheel && \
@@ -62,7 +62,7 @@ COPY Docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Set entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
 
 # Default command
 CMD ["api"]

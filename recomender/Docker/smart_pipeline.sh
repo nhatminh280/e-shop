@@ -160,6 +160,20 @@ check_faiss_complete() {
     return 1
 }
 
+check_qdrant_source_complete() {
+    log_info "Checking Qdrant source data..."
+
+    if check_file_exists "$HYBRID_EMBEDDINGS_FILE" "Hybrid embeddings" && \
+       check_file_exists "$HYBRID_VARIANT_IDS_FILE" "Hybrid variant IDs" && \
+       check_file_exists "$ITEM_FEATURES_FILE" "item_features.csv"; then
+        log_success "Qdrant source data is complete"
+        return 0
+    fi
+
+    log_warning "Qdrant source data is incomplete"
+    return 1
+}
+
 # ============================================================================
 # Pipeline Status Report
 # ============================================================================
@@ -201,13 +215,13 @@ show_pipeline_status() {
     fi
     
     echo ""
-    echo -e "${BLUE}Stage 4: FAISS Index${NC}"
-    if check_faiss_complete > /dev/null 2>&1; then
+    echo -e "${BLUE}Stage 4: Qdrant Collection Source${NC}"
+    if check_qdrant_source_complete > /dev/null 2>&1; then
         echo -e "  Status: ${GREEN}✓ COMPLETE${NC}"
-        FAISS_STATUS="complete"
+        QDRANT_SOURCE_STATUS="complete"
     else
         echo -e "  Status: ${YELLOW}⚠ INCOMPLETE${NC}"
-        FAISS_STATUS="incomplete"
+        QDRANT_SOURCE_STATUS="incomplete"
     fi
     
     echo ""
@@ -271,13 +285,29 @@ run_build_faiss() {
     log_info "Stage 4/4: Building FAISS Index..."
     echo ""
     
-    docker compose --profile build-index up build-faiss
+    docker compose --profile legacy-faiss up build-faiss
     
     if [ $? -eq 0 ]; then
         log_success "FAISS index built"
         return 0
     else
         log_error "FAISS index building failed"
+        return 1
+    fi
+}
+
+run_build_qdrant() {
+    echo ""
+    log_info "Stage 4/4: Building Qdrant Collection..."
+    echo ""
+
+    docker compose --profile build-index up build-qdrant
+
+    if [ $? -eq 0 ]; then
+        log_success "Qdrant collection built"
+        return 0
+    else
+        log_error "Qdrant collection building failed"
         return 1
     fi
 }
@@ -298,24 +328,28 @@ run_smart_pipeline() {
     local need_etl=false
     local need_clip=false
     local need_workflow=false
-    local need_faiss=false
+    local need_qdrant=false
     
     if [ "$ETL_STATUS" = "incomplete" ]; then
         need_etl=true
         need_clip=true
         need_workflow=true
-        need_faiss=true
+        need_qdrant=true
     elif [ "$CLIP_STATUS" = "incomplete" ]; then
         need_clip=true
         need_workflow=true
-        need_faiss=true
+        need_qdrant=true
     elif [ "$WORKFLOW_STATUS" = "incomplete" ]; then
         need_workflow=true
-        need_faiss=true
-    elif [ "$FAISS_STATUS" = "incomplete" ]; then
-        need_faiss=true
+        need_qdrant=true
+    elif [ "$QDRANT_SOURCE_STATUS" = "incomplete" ]; then
+        need_qdrant=true
     else
         log_success "All stages are complete! Pipeline is ready."
+        echo ""
+        log_info "Ensuring Qdrant collection is loaded..."
+        docker compose up -d postgres redis qdrant
+        run_build_qdrant || exit 1
         echo ""
         log_info "Starting API server..."
         docker compose up -d api
@@ -324,7 +358,7 @@ run_smart_pipeline() {
     fi
     
     log_info "Ensuring infrastructure is running..."
-    docker compose up -d postgres redis
+    docker compose up -d postgres redis qdrant
     sleep 5
     
     if [ "$need_etl" = true ]; then
@@ -345,10 +379,11 @@ run_smart_pipeline() {
         log_skip "Hybrid workflow - already complete"
     fi
     
-    if [ "$need_faiss" = true ]; then
-        run_build_faiss || exit 1
+    if [ "$need_qdrant" = true ]; then
+        run_build_qdrant || exit 1
     else
-        log_skip "FAISS index - already built"
+        log_skip "Qdrant source data - already available"
+        run_build_qdrant || exit 1
     fi
     
     echo ""
@@ -398,10 +433,41 @@ case "${1:-auto}" in
         show_pipeline_status
         echo ""
         ;;
+
+    force-etl)
+        run_etl
+        ;;
+
+    force-clip)
+        docker compose up -d postgres
+        run_clip
+        ;;
+
+    force-workflow)
+        docker compose up -d postgres
+        run_workflow
+        ;;
+
+    force-faiss)
+        run_build_faiss
+        ;;
+
+    force-qdrant)
+        docker compose up -d qdrant
+        run_build_qdrant
+        ;;
+
+    force-all)
+        docker compose up -d postgres redis qdrant
+        run_etl || exit 1
+        run_clip || exit 1
+        run_workflow || exit 1
+        run_build_qdrant || exit 1
+        ;;
     
     *)
         log_error "Unknown command: $1"
-        echo "Usage: ./smart_pipeline.sh [auto|status]"
+        echo "Usage: ./smart_pipeline.sh [auto|status|force-etl|force-clip|force-workflow|force-qdrant|force-faiss|force-all]"
         exit 1
         ;;
 esac

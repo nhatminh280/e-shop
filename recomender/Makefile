@@ -66,8 +66,11 @@ force-clip: ## Force re-run CLIP
 force-workflow: ## Force re-run workflow
 	@cd Docker && ./smart_pipeline.sh force-workflow
 
-force-faiss: ## Force rebuild FAISS
+force-faiss: ## Force rebuild legacy FAISS index
 	@cd Docker && ./smart_pipeline.sh force-faiss
+
+force-qdrant: ## Force rebuild Qdrant collection
+	@cd Docker && ./smart_pipeline.sh force-qdrant
 
 force-all: ## Force complete re-run
 	@cd Docker && ./smart_pipeline.sh force-all
@@ -131,11 +134,11 @@ workflow: ## Run hybrid workflow
 	@echo "$(BLUE)Running hybrid workflow...$(NC)"
 	cd Docker && docker compose --profile workflow up workflow
 
-build-index: ## Build FAISS index
-	@echo "$(BLUE)Building FAISS index...$(NC)"
-	cd Docker && docker compose --profile build-index up build-faiss
+build-index: ## Build Qdrant collection
+	@echo "$(BLUE)Building Qdrant collection...$(NC)"
+	cd Docker && docker compose --profile build-index up build-qdrant
 
-rebuild-index: build-index ## Rebuild FAISS and restart API
+rebuild-index: build-index ## Rebuild Qdrant collection and restart API
 	@echo "$(BLUE)Restarting API...$(NC)"
 	cd Docker && docker compose restart api
 
@@ -145,7 +148,7 @@ rebuild-index: build-index ## Rebuild FAISS and restart API
 
 api: ## Start API server only
 	@echo "$(BLUE)Starting API server...$(NC)"
-	cd Docker && docker compose up -d postgres redis api
+	cd Docker && docker compose up -d postgres redis qdrant api
 	@sleep 3
 	@echo "$(GREEN)API available at: http://localhost:8000$(NC)"
 	@echo "$(GREEN)API docs at: http://localhost:8000/docs$(NC)"
@@ -273,8 +276,9 @@ info: ## Show system information
 	@echo "  - ETL: etl/run_etl.py"
 	@echo "  - CLIP: etl/clip_embedding_pipeline.py"
 	@echo "  - Workflow: etl/workFLow.py"
-	@echo "  - FAISS: etl/build_faiss_index.py"
-	@echo "  - API: etl/Content_Base_Model/faiss_api.py"
+	@echo "  - Legacy FAISS: etl/Content_Base_Model/build_faiss_index.py"
+	@echo "  - Qdrant: etl/Content_Base_Model/build_qdrant_index.py"
+	@echo "  - API: etl/Content_Base_Model/recommendation_api.py"
 	@echo "  - Scheduler: etl/scheduler.py"
 	@echo ""
 	@make status

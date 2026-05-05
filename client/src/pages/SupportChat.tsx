@@ -5,6 +5,7 @@ import { Client, type Frame } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { Send, ArrowLeft, Paperclip, Loader2, Plus } from "lucide-react";
 import { format } from "date-fns";
+import { socketUrl } from "../config/runtime";
 import StartConversationForm, {
   type SupportConversationSummary,
 } from "./StartConversationForm";
@@ -13,8 +14,6 @@ import StartConversationForm, {
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 // -----------------
-
-const SOCKET_URL = "http://localhost:8080/ws";
 
 // --- Types (Giữ nguyên) ---
 interface Sender {
@@ -324,7 +323,7 @@ const SupportChat: React.FC = () => {
     fetchMessages();
 
     const client = new Client({
-      webSocketFactory: () => new SockJS(SOCKET_URL),
+      webSocketFactory: () => new SockJS(socketUrl),
       connectHeaders: headers,
       reconnectDelay: 5000,
       onConnect: () => {

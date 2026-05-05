@@ -5,6 +5,9 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Configuration
 @Getter
 @Setter
@@ -12,8 +15,9 @@ import org.springframework.context.annotation.Configuration;
 public class AppEnv {
 
     private String baseURL;
-    private Jwt jwt;
-    private Payment payment;
+    private Jwt jwt = new Jwt();
+    private Payment payment = new Payment();
+    private Cors cors = new Cors();
 
     @Getter
     @Setter
@@ -43,5 +47,14 @@ public class AppEnv {
             private String orderInfoPrefix = "E-Shop Order";
             private long expireAfterMinutes = 15;
         }
+    }
+
+    @Getter
+    @Setter
+    public static class Cors {
+        private List<String> allowedOriginPatterns = new ArrayList<>(List.of(
+            "http://localhost:5173",
+            "http://localhost:5174"
+        ));
     }
 }

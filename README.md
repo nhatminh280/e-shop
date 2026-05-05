@@ -225,6 +225,14 @@ Source UML: [`recomender/recommendation_flow.puml`](recomender/recommendation_fl
 
 
 
+- **Multi-modal metadata encoder** :
+
+  (Text metadata) ──→ BERT ──┐
+                           ├─ concat ──→ MLP ──→ 512D ──→ L2 norm
+(Categorical IDs) → Emb ───┤
+(Numerical values) ────────┘
+
+
 - **Feature Extraction**:
 
   - `CLIP` is used to generate embeddings from images and textual descriptions.

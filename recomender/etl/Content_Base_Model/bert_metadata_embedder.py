@@ -62,7 +62,7 @@ class MetadataEncoder(nn.Module):
         self.bert = AutoModel.from_pretrained(bert_model_name)
         self.bert_dim = self.bert.config.hidden_size  # 768 for BERT-base
         
-        # Freeze BERT (optional - faster training)
+        # Freeze BERT 
         for param in self.bert.parameters():
             param.requires_grad = False
         

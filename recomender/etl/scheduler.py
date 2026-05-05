@@ -7,7 +7,7 @@ Features:
 - Automatic CLIP embedding generation
 - BERT metadata embedding
 - Hybrid embedding fusion
-- FAISS index rebuilding
+- Qdrant collection rebuilding
 - Health monitoring and notifications
 - Logging and error handling
 
@@ -21,7 +21,7 @@ Usage:
     # Run specific task
     python3 scheduler.py --task etl
     python3 scheduler.py --task embeddings
-    python3 scheduler.py --task build-index
+    python3 scheduler.py --task qdrant_index
 """
 
 import schedule
@@ -228,37 +228,31 @@ class BERTHybridTask(PipelineTask):
         }
 
 
-class FAISSIndexTask(PipelineTask):
-    """FAISS Index Building Task"""
+class QdrantIndexTask(PipelineTask):
+    """Qdrant collection building task."""
     
     def __init__(self):
-        super().__init__("FAISS_Index")
+        super().__init__("Qdrant_Index")
     
     def execute(self) -> Dict[str, Any]:
-        logger.info("Building FAISS index from hybrid embeddings")
+        logger.info("Building Qdrant collection from hybrid embeddings")
         
-        # Run FAISS index builder
         result = subprocess.run(
-            [sys.executable, "./Content_Base_Model/faiss_api.py", "build-index"],
+            [sys.executable, "-m", "Content_Base_Model.build_qdrant_index", "--recreate"],
             capture_output=True,
             text=True
         )
         
         if result.returncode != 0:
-            raise RuntimeError(f"FAISS index build failed:\n{result.stderr}")
+            raise RuntimeError(f"Qdrant collection build failed:\n{result.stderr}")
         
-        # Kiểm tra file index tồn tại
-        index_path = "./data/faiss/hybrid_index.faiss"
-        if not Path(index_path).exists():
-            raise RuntimeError(f"FAISS index was not created at {index_path}")
-        
-        # Load embeddings chỉ để trả số lượng
+        # Load embeddings only to report indexed item count.
         import numpy as np
         embeddings = np.load("./data/processed/hybrid_embeddings.npy")
         
         return {
             'index_size': len(embeddings),
-            'index_path': index_path
+            'backend': 'qdrant'
         }
 
 
@@ -283,7 +277,7 @@ class HealthCheckTask(PipelineTask):
             "./data/processed/item_features.csv",
             "./data/processed/clip_item_embeddings.npy",
             "./data/processed/hybrid_embeddings.npy",
-            "./data/faiss/hybrid_index.faiss"
+            "./data/processed/hybrid_variant_ids.npy"
         ]
         
         for file in required_files:
@@ -340,7 +334,7 @@ class PipelineScheduler:
             'etl': {
                 'enabled': True,
                 'schedule': 'daily',
-                'time': '02:00',  # 2 AM
+                'time': '10:30',  # 2 AM
                 'lookback_days': 90
             },
             'clip_embedding': {
@@ -351,11 +345,11 @@ class PipelineScheduler:
             'bert_hybrid': {
                 'enabled': True,
                 'schedule': 'after_clip',  # Run after CLIP
-                'fusion_alpha': 0.7
+                'fusion_alpha': 0.6
             },
-            'faiss_index': {
+            'qdrant_index': {
                 'enabled': True,
-                'schedule': 'after_bert',  # Run after BERT
+                'schedule': 'after_bert',
             },
             'health_check': {
                 'enabled': True,
@@ -383,9 +377,9 @@ class PipelineScheduler:
                 fusion_alpha=self.config['bert_hybrid']['fusion_alpha']
             )
         
-        # FAISS Index Task
-        if self.config['faiss_index']['enabled']:
-            self.tasks['faiss_index'] = FAISSIndexTask()
+        # Qdrant Index Task
+        if self.config.get('qdrant_index', {}).get('enabled', False):
+            self.tasks['qdrant_index'] = QdrantIndexTask()
         
         # Health Check Task
         if self.config['health_check']['enabled']:
@@ -408,10 +402,10 @@ class PipelineScheduler:
         return result
     
     def run_full_pipeline(self):
-        """Run complete pipeline: ETL -> CLIP -> BERT -> FAISS"""
+        """Run complete pipeline: ETL -> CLIP -> BERT -> Qdrant"""
         logger.info("Starting FULL PIPELINE")
         
-        pipeline_tasks = ['etl', 'clip_embedding', 'bert_hybrid', 'faiss_index']
+        pipeline_tasks = ['etl', 'clip_embedding', 'bert_hybrid', 'qdrant_index']
         results = {}
         
         for task_name in pipeline_tasks:
@@ -444,7 +438,7 @@ class PipelineScheduler:
         # Health Check Schedule
         if self.config['health_check']['enabled']:
             if self.config['health_check']['schedule'] == 'hourly':
-                schedule.every().hour.do(self.run_task, 'health_check')
+                schedule.every(1).hour.do(self.run_task, 'health_check')
                 logger.info("Health check scheduled hourly")
     
     def start_daemon(self):
@@ -536,13 +530,14 @@ Examples:
     parser.add_argument('--run-once', action='store_true',
                        help='Run full pipeline once and exit')
     parser.add_argument('--task', type=str,
-                       help='Run specific task: etl, clip_embedding, bert_hybrid, faiss_index, health_check')
+                       help='Run specific task: etl, clip_embedding, bert_hybrid, qdrant_index, health_check')
     parser.add_argument('--daemon', action='store_true',
                        help='Run as daemon with scheduled jobs')
     parser.add_argument('--config', type=str,
                        help='Path to custom configuration JSON file')
     parser.add_argument('--status', action='store_true',
                        help='Show scheduler status')
+    
     
     args = parser.parse_args()
     

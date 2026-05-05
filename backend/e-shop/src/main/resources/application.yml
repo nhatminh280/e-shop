@@ -1,6 +1,15 @@
 spring:
   config:
     import: optional:file:.env.properties
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      ssl:
+        enabled: ${SPRING_DATA_REDIS_SSL_ENABLED:false}
   datasource:
     url: jdbc:postgresql://localhost:5433/eshop
     username: app
@@ -39,8 +48,13 @@ storage:
     public-url: ${STORAGE_MINIO_PUBLIC_URL:http://localhost:9000}
 app:
   base-url: /api/v1
+  cache:
+    namespace: ${APP_CACHE_NAMESPACE:eshop::${spring.profiles.active:default}}
+    default-ttl: ${APP_CACHE_DEFAULT_TTL:15m}
   mail:
     from-address: ${APP_MAIL_FROM:E-Shop no-reply <no-reply@eshop.local>}
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:5173,http://localhost:5174}
   auth:
     activation:
       base-url: ${APP_ACTIVATION_BASE_URL:http://localhost:8080/api/auth/activate}
@@ -66,6 +80,6 @@ app:
       expire-after-minutes: ${VNPAY_EXPIRE_AFTER_MINUTES:15}
 recommendation:
   base-url: ${RECOMMENDER_BASE_URL:http://localhost:8000}
-  enabled: true
+  enabled: ${RECOMMENDATION_ENABLED:true}
   connect-timeout: 2s
   read-timeout: 3s

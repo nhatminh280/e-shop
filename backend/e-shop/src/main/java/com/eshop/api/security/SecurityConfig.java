@@ -1,5 +1,6 @@
 package com.eshop.api.security;
 
+import com.eshop.api.config.AppEnv;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,13 +19,13 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
-
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final AppEnv appEnv;
 
     @Bean public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -41,7 +42,7 @@ public class SecurityConfig {
                 "/api/auth/login",
                 "/api/auth/refresh",
                 "/api/auth/password/reset/**",
-                "api/auth/activate/**",
+                "/api/auth/activate/**",
                 "/api/catalog/**",
                 "/swagger-ui/**",
                 "/v3/api-docs/**",
@@ -54,10 +55,11 @@ public class SecurityConfig {
 
     @Bean public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174"));
-        configuration.setAllowedOriginPatterns(List.of("*")); // TODO: REMOVE THIS LATER
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        configuration.setAllowedOriginPatterns(appEnv.getCors().getAllowedOriginPatterns());
+        configuration.setAllowedOrigins(null);
         configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        configuration.setExposedHeaders(List.of("Authorization"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
