@@ -60,3 +60,4 @@ backend/e-shop/src/main/resources/data/*_seed_*.sql
 **/AGENTS.md
 .codex
 .agents
+/docs
