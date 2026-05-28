@@ -1,0 +1,155 @@
+{
+  "products": [
+    {
+      "productId": "p001",
+      "name": "Patagonia Cap Cool Daily Shirt",
+      "slug": "patagonia-cap-cool-daily-shirt",
+      "category": "shirt",
+      "gender": "unisex",
+      "price": 890000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p001.jpg",
+      "colors": ["black", "blue", "white"],
+      "sizes": ["S", "M", "L", "XL"],
+      "stock": 18,
+      "tags": ["top", "hiking", "summer", "quick dry"],
+      "description": "Lightweight everyday technical shirt for warm weather."
+    },
+    {
+      "productId": "p002",
+      "name": "Patagonia Baggies Shorts",
+      "slug": "patagonia-baggies-shorts",
+      "category": "shorts",
+      "gender": "men",
+      "price": 1250000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p002.jpg",
+      "colors": ["green", "navy", "black"],
+      "sizes": ["S", "M", "L"],
+      "stock": 7,
+      "tags": ["bottom", "swim", "outdoor", "casual"],
+      "description": "Durable water-ready shorts with relaxed fit."
+    },
+    {
+      "productId": "p003",
+      "name": "Patagonia Torrentshell 3L Jacket",
+      "slug": "patagonia-torrentshell-3l-jacket",
+      "category": "jacket",
+      "gender": "women",
+      "price": 3890000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p003.jpg",
+      "colors": ["red", "black"],
+      "sizes": ["M", "L"],
+      "stock": 3,
+      "tags": ["rain", "shell", "waterproof"],
+      "description": "Waterproof shell jacket for heavy rain and travel."
+    },
+    {
+      "productId": "p004",
+      "name": "Patagonia Better Sweater Fleece",
+      "slug": "patagonia-better-sweater-fleece",
+      "category": "fleece",
+      "gender": "unisex",
+      "price": 2790000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p004.jpg",
+      "colors": ["gray", "navy", "black"],
+      "sizes": ["S", "M", "L", "XL"],
+      "stock": 12,
+      "tags": ["warm", "midlayer", "casual"],
+      "description": "Warm knit-look fleece for cool weather layering."
+    },
+    {
+      "productId": "p005",
+      "name": "Patagonia Quandary Pants",
+      "slug": "patagonia-quandary-pants",
+      "category": "pants",
+      "gender": "men",
+      "price": 2190000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p005.jpg",
+      "colors": ["khaki", "black", "gray"],
+      "sizes": ["S", "M", "L", "XL"],
+      "stock": 9,
+      "tags": ["bottom", "hiking", "travel"],
+      "description": "Light hiking pants with stretch and sun protection."
+    },
+    {
+      "productId": "p006",
+      "name": "Patagonia Nano Puff Vest",
+      "slug": "patagonia-nano-puff-vest",
+      "category": "vest",
+      "gender": "women",
+      "price": 3290000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p006.jpg",
+      "colors": ["blue", "black", "purple"],
+      "sizes": ["XS", "S", "M", "L"],
+      "stock": 5,
+      "tags": ["insulated", "lightweight", "travel"],
+      "description": "Packable insulated vest for mild cold conditions."
+    },
+    {
+      "productId": "p007",
+      "name": "Patagonia Long-Sleeved Fjord Flannel Shirt",
+      "slug": "patagonia-fjord-flannel-shirt",
+      "category": "shirt",
+      "gender": "men",
+      "price": 1990000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p007.jpg",
+      "colors": ["red", "green", "blue"],
+      "sizes": ["S", "M", "L", "XL", "XXL"],
+      "stock": 11,
+      "tags": ["top", "cotton", "casual", "warm"],
+      "description": "Soft organic cotton flannel shirt for everyday wear."
+    },
+    {
+      "productId": "p008",
+      "name": "Patagonia Black Hole Pack 25L",
+      "slug": "patagonia-black-hole-pack-25l",
+      "category": "backpack",
+      "gender": "unisex",
+      "price": 3590000,
+      "currency": "VND",
+      "imageUrl": "https://example.com/images/p008.jpg",
+      "colors": ["black", "navy", "orange"],
+      "sizes": ["OS"],
+      "stock": 6,
+      "tags": ["bag", "travel", "commute", "water resistant"],
+      "description": "Tough daily backpack for commuting and weekend travel."
+    }
+  ],
+  "orders": [
+    {
+      "orderNumber": "ES123",
+      "status": "SHIPPED",
+      "paymentStatus": "PAID",
+      "eta": "2026-05-15"
+    },
+    {
+      "orderNumber": "ES456",
+      "status": "PROCESSING",
+      "paymentStatus": "PENDING",
+      "eta": "2026-05-17"
+    }
+  ],
+  "knowledge": [
+    {
+      "sourceId": "policy-shipping",
+      "title": "Shipping Policy",
+      "body": "Standard shipping usually takes 3 to 5 business days after payment is confirmed."
+    },
+    {
+      "sourceId": "policy-return",
+      "title": "Return Policy",
+      "body": "Unworn products can be returned within 30 days with original tags and receipt."
+    },
+    {
+      "sourceId": "size-guide",
+      "title": "Size Guide",
+      "body": "If you are between sizes, choose the larger size for relaxed outdoor layering."
+    }
+  ]
+}
