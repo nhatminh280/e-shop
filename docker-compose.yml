@@ -46,6 +46,8 @@ services:
       STORAGE_MINIO_PUBLIC_URL: http://localhost:9000
       RECOMMENDER_BASE_URL: ${RECOMMENDER_BASE_URL:-http://host.docker.internal:8000}
       RECOMMENDATION_ENABLED: ${RECOMMENDATION_ENABLED:-true}
+      CHAT_AGENT_BASE_URL: ${CHAT_AGENT_BASE_URL:-http://host.docker.internal:8010}
+      CHAT_AGENT_ENABLED: ${CHAT_AGENT_ENABLED:-true}
       VNPAY_TMN_CODE: ${VNPAY_TMN_CODE}
       VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET}
     ports:
