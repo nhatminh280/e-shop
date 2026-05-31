@@ -18,10 +18,10 @@
     "fusion_alpha": 0.7,
     "description": "Generate hybrid embeddings after CLIP completes"
   },
-  "faiss_index": {
+  "qdrant_index": {
     "enabled": true,
     "schedule": "after_bert",
-    "description": "Rebuild FAISS index after hybrid embeddings"
+    "description": "Rebuild Qdrant collection after hybrid embeddings"
   },
   "health_check": {
     "enabled": true,

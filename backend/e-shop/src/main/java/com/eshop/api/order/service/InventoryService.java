@@ -4,6 +4,7 @@ import com.eshop.api.catalog.model.ProductVariant;
 import com.eshop.api.cart.model.Cart;
 import com.eshop.api.cart.model.CartItem;
 import com.eshop.api.cart.repository.CartRepository;
+import com.eshop.api.cache.CatalogCacheInvalidationService;
 import com.eshop.api.catalog.repository.ProductVariantRepository;
 import com.eshop.api.exception.InsufficientInventoryException;
 import com.eshop.api.exception.ProductVariantNotFoundException;
@@ -25,6 +26,7 @@ public class InventoryService {
 
     private final ProductVariantRepository productVariantRepository;
     private final CartRepository cartRepository;
+    private final CatalogCacheInvalidationService cacheInvalidationService;
 
     @Transactional
     public void reserveCartItems(Collection<CartItem> cartItems) {
@@ -42,6 +44,8 @@ public class InventoryService {
                 throw new InsufficientInventoryException(variant.getId(), requested, available);
             }
             variant.setQuantityInStock(available - requested);
+            productVariantRepository.save(variant);
+            invalidateVariantCache(variant);
         }
     }
 
@@ -58,6 +62,8 @@ public class InventoryService {
             }
             int available = Objects.requireNonNullElse(variant.getQuantityInStock(), 0);
             variant.setQuantityInStock(available + quantity);
+            productVariantRepository.save(variant);
+            invalidateVariantCache(variant);
         }
     }
 
@@ -79,5 +85,15 @@ public class InventoryService {
         }
         return productVariantRepository.findById(variantId)
             .orElseThrow(() -> new ProductVariantNotFoundException(variantId));
+    }
+
+    private void invalidateVariantCache(ProductVariant variant) {
+        if (variant.getProduct() == null) {
+            return;
+        }
+        String slug = variant.getProduct().getSlug();
+        if (slug != null) {
+            cacheInvalidationService.invalidatePublicProductCatalog(slug);
+        }
     }
 }

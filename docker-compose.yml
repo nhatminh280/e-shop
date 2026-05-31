@@ -45,6 +45,7 @@ services:
       STORAGE_MINIO_REGION: us-east-1
       STORAGE_MINIO_PUBLIC_URL: http://localhost:9000
       RECOMMENDER_BASE_URL: ${RECOMMENDER_BASE_URL:-http://host.docker.internal:8000}
+      RECOMMENDATION_ENABLED: ${RECOMMENDATION_ENABLED:-true}
       VNPAY_TMN_CODE: ${VNPAY_TMN_CODE}
       VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET}
     ports:

@@ -6,6 +6,8 @@ requirements.md
 .DS_Store
 Thumbs.db
 *.log
+__pycache__/
+**/__pycache__/
 *.swp
 *.swo
 
@@ -16,8 +18,12 @@ Thumbs.db
 *.env
 .vscode/
 venv/
+**/.venv/
 checkdb.py
 recomender/etl/data/
+recomender/data/
+recomender/logs/
+recomender/etl/logs/
 recomender/etl/data/processed/*.pt
 seedSQL/
 recomender/etl/Content_Base_Model/.gradio

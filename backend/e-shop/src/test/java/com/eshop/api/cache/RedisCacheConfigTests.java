@@ -256,6 +256,18 @@ class RedisCacheConfigTests {
                 });
     }
 
+    @Test
+    void springCacheTypeNoneSkipsRedisCacheConfiguration() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(RedisCacheConfig.class, TestRedisConnectionConfiguration.class)
+                .withPropertyValues("spring.cache.type=none")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(RedisCacheManager.class);
+                    assertThat(context).doesNotHaveBean(RedisCacheConfiguration.class);
+                    assertThat(context).doesNotHaveBean(CacheProperties.class);
+                });
+    }
+
     record CatalogEntry(String name, LocalDateTime updatedAt) {
     }
 

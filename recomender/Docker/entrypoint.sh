@@ -10,7 +10,7 @@ set -e
 # Configuration
 # ============================================================================
 
-DATA_DIR="../etl/data"
+DATA_DIR="${DATA_DIR:-/app/data}"
 PROCESSED_DIR="${DATA_DIR}/processed"
 FAISS_DIR="${DATA_DIR}/faiss"
 
@@ -59,6 +59,10 @@ check_workflow_complete() {
 
 check_faiss_complete() {
     ls "${FAISS_DIR}"/*.faiss 1> /dev/null 2>&1
+}
+
+check_qdrant_source_complete() {
+    check_workflow_complete && check_file_exists "${PROCESSED_DIR}/item_features.csv"
 }
 
 # ============================================================================
@@ -152,7 +156,12 @@ run_faiss_stage() {
     fi
     
     log_info "Building FAISS index..."
-    python build_faiss_index.py --index-type flat --benchmark
+    python -m Content_Base_Model.build_faiss_index \
+        --index-type flat \
+        --benchmark \
+        --embeddings "${PROCESSED_DIR}/hybrid_embeddings.npy" \
+        --variant-ids "${PROCESSED_DIR}/hybrid_variant_ids.npy" \
+        --output-dir "${FAISS_DIR}"
     
     if check_faiss_complete; then
         log_success "FAISS index built"
@@ -161,6 +170,19 @@ run_faiss_stage() {
         log_error "FAISS failed to build index"
         return 1
     fi
+}
+
+run_qdrant_stage() {
+    log_info "Qdrant Stage - Checking source data..."
+
+    if ! check_qdrant_source_complete; then
+        log_error "Hybrid embeddings or item features not found - run workflow first"
+        return 1
+    fi
+
+    log_info "Building Qdrant collection..."
+    python -m Content_Base_Model.build_qdrant_index --recreate
+    log_success "Qdrant collection built"
 }
 
 # ============================================================================
@@ -186,6 +208,10 @@ case "$COMMAND" in
     build-faiss)
         run_faiss_stage
         ;;
+
+    build-qdrant)
+        run_qdrant_stage
+        ;;
     
     # Smart auto-run
     auto)
@@ -196,7 +222,7 @@ case "$COMMAND" in
         run_etl_stage || exit 1
         run_clip_stage || exit 1
         run_workflow_stage || exit 1
-        run_faiss_stage || exit 1
+        run_qdrant_stage || exit 1
         
         log_success "All stages completed!"
         ;;
@@ -219,7 +245,17 @@ case "$COMMAND" in
     
     force-faiss)
         log_info "Force building FAISS..."
-        python build_faiss_index.py --index-type flat --benchmark
+        python -m Content_Base_Model.build_faiss_index \
+            --index-type flat \
+            --benchmark \
+            --embeddings "${PROCESSED_DIR}/hybrid_embeddings.npy" \
+            --variant-ids "${PROCESSED_DIR}/hybrid_variant_ids.npy" \
+            --output-dir "${FAISS_DIR}"
+        ;;
+
+    force-qdrant)
+        log_info "Force rebuilding Qdrant collection..."
+        python -m Content_Base_Model.build_qdrant_index --recreate
         ;;
     
     # API mode
@@ -227,12 +263,12 @@ case "$COMMAND" in
         log_info "Starting API server..."
         
         # Check if all data is ready
-        if ! check_faiss_complete; then
-            log_error "FAISS index not found - run pipeline first"
+        if ! check_qdrant_source_complete; then
+            log_error "Hybrid embeddings or item features not found - run pipeline first"
             exit 1
         fi
         
-        exec uvicorn faiss_api:eshop --host 0.0.0.0 --port 8000 "${@:2}"
+        exec uvicorn Content_Base_Model.recommendation_api:eshop --host 0.0.0.0 --port 8000 "${@:2}"
         ;;
     
     # Check data status
