@@ -1,0 +1,148 @@
+[
+  {
+    "id": "product_search_jacket_black_m",
+    "category": "product_search",
+    "message": "ao khoac den size M con hang khong",
+    "expected": {
+      "intent": "product_search",
+      "responseType": "product_results",
+      "requiredSlots": {
+        "category": "jacket",
+        "color": "black",
+        "size": "M",
+        "in_stock": true
+      },
+      "toolCalls": ["catalog.search"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "filter_shoes_men_under_500k_empty",
+    "category": "filter_by_price",
+    "message": "giay nam duoi 500k",
+    "expected": {
+      "intent": "product_search",
+      "responseType": "empty_result",
+      "requiredSlots": {
+        "category": "shoes",
+        "gender": "men",
+        "price_max": 500000
+      },
+      "toolCalls": ["catalog.search"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "recommendation_from_previous_product",
+    "category": "recommendation",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "goi y san pham tuong tu",
+    "expected": {
+      "intent": "recommendation",
+      "responseType": "recommendations",
+      "requiredSlots": {},
+      "toolCalls": ["recommend.similar"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "order_lookup_authenticated",
+    "category": "order_status",
+    "message": "check order ES123",
+    "authenticated": true,
+    "userId": "user-1",
+    "expected": {
+      "intent": "order_status",
+      "responseType": "order_status",
+      "requiredSlots": {
+        "order_id": "ES123"
+      },
+      "toolCalls": ["order.lookup"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "latest_order_authenticated",
+    "category": "order_status",
+    "message": "don hang gan nhat",
+    "authenticated": true,
+    "userId": "user-1",
+    "expected": {
+      "intent": "order_status",
+      "responseType": "order_status",
+      "requiredSlots": {
+        "order_id": "latest"
+      },
+      "toolCalls": ["order.list"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "cart_add_first_product_draft",
+    "category": "cart_draft",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "them cai dau tien vao gio",
+    "expected": {
+      "intent": "cart_action",
+      "responseType": "draft_action",
+      "requiredSlots": {
+        "ordinal": 0,
+        "action_type": "add"
+      },
+      "toolCalls": ["cart.get", "cart.add_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "cart_update_quantity_draft",
+    "category": "cart_draft",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "tang so luong len 2",
+    "expected": {
+      "intent": "cart_action",
+      "responseType": "draft_action",
+      "requiredSlots": {
+        "quantity": 2,
+        "action_type": "update_quantity"
+      },
+      "toolCalls": ["cart.get", "cart.update_quantity_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "support_handoff_draft",
+    "category": "support_handoff",
+    "message": "toi muon gap nhan vien ho tro",
+    "expected": {
+      "intent": "support_handoff",
+      "responseType": "handoff",
+      "requiredSlots": {},
+      "toolCalls": ["support.create_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "policy_return_answer",
+    "category": "policy_or_faq",
+    "message": "return policy",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "malformed_prompt_too_long",
+    "category": "unsafe_malformed",
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "expected": {
+      "intent": "fallback",
+      "responseType": "clarification",
+      "requiredSlots": {},
+      "toolCalls": [],
+      "requiresConfirmation": false
+    }
+  }
+]
