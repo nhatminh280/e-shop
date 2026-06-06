@@ -83,3 +83,8 @@ recommendation:
   enabled: ${RECOMMENDATION_ENABLED:true}
   connect-timeout: 2s
   read-timeout: 3s
+chat-agent:
+  base-url: ${CHAT_AGENT_BASE_URL:http://localhost:8010}
+  enabled: ${CHAT_AGENT_ENABLED:false}
+  connect-timeout: ${CHAT_AGENT_CONNECT_TIMEOUT:2s}
+  read-timeout: ${CHAT_AGENT_READ_TIMEOUT:5s}

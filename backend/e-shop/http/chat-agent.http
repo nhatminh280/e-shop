@@ -1,0 +1,57 @@
+### Chat Agent Bridge API
+
+@access_token = eyJhbGciOiJIUzI1NiJ9.eyJyb2xlcyI6WyJDVVNUT01FUiJdLCJ0b2tlblR5cGUiOiJBQ0NFU1MiLCJzdWIiOiJkZW1vLmN1c3RvbWVyQGVzaG9wLmxvY2FsIiwiaWF0IjoxNzgwMjQxNTE2LCJleHAiOjE3ODA2MDE1MTZ9.Jft_yOnlUrUEbKW2zMfyJqG1inmoDQhpMKMbaXzU_WA
+@session_id = chat-session-001
+@trace_id = chat-trace-001
+@request_id = chat-request-001
+
+
+### Send chat message through Spring bridge
+### Requires CHAT_AGENT_ENABLED=true and CHAT_AGENT_BASE_URL pointing to the FastAPI chat-agent.
+
+POST http://localhost:8080/api/agent/chat HTTP/1.1
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+x-trace-id: {{trace_id}}
+x-request-id: {{request_id}}
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
+
+{
+  "message": "I need help finding a black jacket",
+  "sessionId": "{{session_id}}",
+  "traceId": "{{trace_id}}",
+  "requestId": "{{request_id}}",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+  "pageContext": {
+    "path": "/products",
+    "locale": "en-US",
+    "currency": "USD"
+  }
+}
+
+
+### Disabled bridge check
+### With default CHAT_AGENT_ENABLED=false this should return 503.
+
+POST http://localhost:8080/api/agent/chat HTTP/1.1
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "message": "Will the bridge call FastAPI?",
+  "sessionId": "{{session_id}}",
+  "pageContext": {}
+}
+
+
+### Validation check: blank message should return 400
+
+POST http://localhost:8080/api/agent/chat HTTP/1.1
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "message": " ",
+  "sessionId": "{{session_id}}",
+  "pageContext": {}
+}
