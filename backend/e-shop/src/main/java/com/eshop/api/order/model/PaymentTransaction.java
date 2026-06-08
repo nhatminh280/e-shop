@@ -2,6 +2,7 @@ package com.eshop.api.order.model;
 
 import com.eshop.api.order.enums.PaymentMethod;
 import com.eshop.api.order.enums.PaymentStatus;
+import com.eshop.api.payment.PaymentProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
 import jakarta.persistence.Index;
@@ -46,7 +47,8 @@ public class PaymentTransaction {
     private Order order;
 
     @Column(name = "provider", nullable = false, length = 64)
-    private String provider;
+    @Enumerated(EnumType.STRING)
+    private PaymentProvider provider;
 
     @Column(name = "provider_transaction_id", length = 128)
     private String providerTransactionId;
