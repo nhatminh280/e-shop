@@ -9,7 +9,6 @@ import com.eshop.api.order.dto.CheckoutItemResponse;
 import com.eshop.api.order.dto.CheckoutRequest;
 import com.eshop.api.order.dto.CheckoutResponse;
 import com.eshop.api.order.enums.OrderStatus;
-import com.eshop.api.order.enums.PaymentMethod;
 import com.eshop.api.order.enums.PaymentStatus;
 import com.eshop.api.order.enums.OrderAddressType;
 import com.eshop.api.order.exception.AddressNotFoundException;
@@ -27,8 +26,11 @@ import com.eshop.api.order.repository.OrderAddressRepository;
 import com.eshop.api.order.repository.OrderRepository;
 import com.eshop.api.order.repository.OrderStatusHistoryRepository;
 import com.eshop.api.order.repository.PaymentTransactionRepository;
-import com.eshop.api.payment.dto.VnPayInitResponse;
-import com.eshop.api.payment.service.VnPayPaymentService;
+import com.eshop.api.payment.PaymentProvider;
+import com.eshop.api.payment.PaymentProviderRegistry;
+import com.eshop.api.payment.PaymentProviderStrategy;
+import com.eshop.api.payment.dto.PaymentInitiationRequest;
+import com.eshop.api.payment.dto.PaymentInitiationResult;
 import com.eshop.api.catalog.model.ProductVariant;
 import com.eshop.api.user.User;
 import org.springframework.stereotype.Service;
@@ -62,7 +64,7 @@ public class OrderCheckoutService {
     private final OrderAddressRepository orderAddressRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
-    private final VnPayPaymentService vnPayPaymentService;
+    private final PaymentProviderRegistry paymentProviderRegistry;
     private final InventoryService inventoryService;
     private final ObjectMapper objectMapper;
 
@@ -70,6 +72,8 @@ public class OrderCheckoutService {
     private EntityManager entityManager;
 
     @Transactional public CheckoutResponse checkout(String email, CheckoutRequest request, String clientIp) {
+        PaymentProvider provider = request.getPaymentProvider();
+        PaymentProviderStrategy paymentStrategy = paymentProviderRegistry.get(provider);
         User user = findUser(email);
         Cart cart = cartRepository.findByUser_Id(user.getId()).orElseThrow(() -> new CartNotFoundException(user.getId()));
 
@@ -88,7 +92,7 @@ public class OrderCheckoutService {
         inventoryService.reserveCartItems(cart.getItems());
 
         Order order = Order.builder().orderNumber(generateOrderNumber()).user(user).cart(cart).status(OrderStatus.AWAITING_PAYMENT).paymentStatus(
-                PaymentStatus.PENDING).paymentMethod(PaymentMethod.CARD).currency(DEFAULT_CURRENCY).subtotalAmount(
+                PaymentStatus.PENDING).paymentMethod(paymentStrategy.paymentMethod()).currency(DEFAULT_CURRENCY).subtotalAmount(
                 breakdown.subtotal()).discountAmount(breakdown.discount()).shippingAmount(breakdown.shipping()).taxAmount(
                 breakdown.tax()).totalAmount(breakdown.total()).notes(request.getNotes()).shippingMethod(request.getShippingMethod()).placedAt(
                 Instant.now()).build();
@@ -109,23 +113,26 @@ public class OrderCheckoutService {
         order = orderRepository.save(order);
 
         OrderStatusHistory history = OrderStatusHistory.builder().order(order).status(order.getStatus()).paymentStatus(
-                order.getPaymentStatus()).changedBy(user).comment("Order created and pending VNPay payment").build();
+                order.getPaymentStatus()).changedBy(user).comment(
+                "Order created and pending " + provider + " payment").build();
         order.addStatusHistory(history);
         orderStatusHistoryRepository.save(history);
 
-        PaymentTransaction transaction = PaymentTransaction.builder().order(order).provider("VNPAY").idempotencyKey(
+        PaymentTransaction transaction = PaymentTransaction.builder().order(order).provider(provider).idempotencyKey(
                 order.getOrderNumber()).amount(order.getTotalAmount()).currency(order.getCurrency()).status(
-                PaymentStatus.PENDING).method(PaymentMethod.CARD).build();
+                PaymentStatus.PENDING).method(paymentStrategy.paymentMethod()).build();
         order.addPaymentTransaction(transaction);
         transaction = paymentTransactionRepository.save(transaction);
 
-        VnPayInitResponse vnPayInit = vnPayPaymentService.createPaymentUrl(order, transaction, clientIp);
+        PaymentInitiationResult paymentInitiation = paymentStrategy.initiate(
+            new PaymentInitiationRequest(order, transaction, clientIp));
 
         return CheckoutResponse.builder().orderId(order.getId()).orderNumber(order.getOrderNumber()).status(order.getStatus()).paymentStatus(
                 order.getPaymentStatus()).subtotalAmount(order.getSubtotalAmount()).discountAmount(order.getDiscountAmount()).shippingAmount(
                 order.getShippingAmount()).taxAmount(order.getTaxAmount()).totalAmount(order.getTotalAmount()).currency(
-                order.getCurrency()).totalAmountVnd(vnPayInit.getAmountVnd()).paymentProvider("VNPAY").paymentUrl(
-                vnPayInit.getPaymentUrl()).paymentUrlExpiresAt(vnPayInit.getExpiresAt()).items(itemResponses).build();
+                order.getCurrency()).totalAmountVnd(paymentInitiation.providerAmount()).paymentProvider(
+                paymentInitiation.provider()).paymentUrl(paymentInitiation.paymentUrl()).paymentUrlExpiresAt(
+                paymentInitiation.expiresAt()).items(itemResponses).build();
     }
 
     private User findUser(String email) {

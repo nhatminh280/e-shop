@@ -7,7 +7,8 @@ import lombok.Getter;
 
 @Getter
 @Builder
-public class VnPayConfirmResponse {
+public class PaymentConfirmationResponse {
+
     private final String orderNumber;
     private final OrderStatus orderStatus;
     private final PaymentStatus paymentStatus;

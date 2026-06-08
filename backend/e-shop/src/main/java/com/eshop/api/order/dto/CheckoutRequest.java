@@ -1,5 +1,6 @@
 package com.eshop.api.order.dto;
 
+import com.eshop.api.payment.PaymentProvider;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -13,6 +14,8 @@ import java.util.UUID;
 @Getter
 @Setter
 public class CheckoutRequest {
+
+    private PaymentProvider paymentProvider = PaymentProvider.VNPAY;
 
     private UUID addressId;
 

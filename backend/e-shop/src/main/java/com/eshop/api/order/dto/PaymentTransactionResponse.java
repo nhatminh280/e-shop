@@ -2,6 +2,7 @@ package com.eshop.api.order.dto;
 
 import com.eshop.api.order.enums.PaymentMethod;
 import com.eshop.api.order.enums.PaymentStatus;
+import com.eshop.api.payment.PaymentProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Builder;
 import lombok.Value;
@@ -16,7 +17,7 @@ public class PaymentTransactionResponse {
     UUID id;
     UUID orderId;
     String orderNumber;
-    String provider;
+    PaymentProvider provider;
     String providerTransactionId;
     String idempotencyKey;
     BigDecimal amount;

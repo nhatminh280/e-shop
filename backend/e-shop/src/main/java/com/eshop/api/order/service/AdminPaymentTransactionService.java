@@ -80,7 +80,8 @@ public class AdminPaymentTransactionService {
             }
 
             if (provider != null && !provider.isBlank()) {
-                predicate = cb.and(predicate, cb.like(cb.lower(root.get("provider")), "%" + provider.toLowerCase() + "%"));
+                predicate = cb.and(predicate, cb.equal(root.get("provider"),
+                    com.eshop.api.payment.PaymentProvider.fromValue(provider)));
             }
 
             if (orderNumber != null && !orderNumber.isBlank()) {

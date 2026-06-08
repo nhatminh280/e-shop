@@ -1,10 +1,10 @@
-# Orders & VNPay Checkout API
+# Orders & Payment API
 
 Base URL: `/api/orders`
 
 ## POST `/checkout`
 
-Creates an order from the authenticated user's active cart and returns the VNPay payment URL.
+Creates an order from the authenticated user's active cart and returns the selected provider's payment URL.
 
 ### Authentication
 
@@ -14,6 +14,7 @@ Requires a valid JWT access token. The user's email (subject) is used to resolve
 
 ```json
 {
+  "paymentProvider": "VNPAY",
   "addressId": "8b1a9953-c461-42e6-baf0-3dfb4c701d89",
   "address": {
     "label": "Home",
@@ -36,6 +37,7 @@ Requires a valid JWT access token. The user's email (subject) is used to resolve
 }
 ```
 
+- `paymentProvider` (optional) — case-insensitive payment provider identifier. Defaults to `VNPAY`.
 - `addressId` (optional) — existing address owned by the user. If supplied, `address` is ignored except for `instructions`.
 - `address` (optional) — required when `addressId` is omitted; used to snapshot shipping info and optionally persist to the address book.
 - `saveAddress` — when true, the provided `address` is stored in the address book before checkout. Defaults to `false`.
@@ -85,7 +87,8 @@ Content-Type: application/json
 
 - Cart line pricing uses the variant price stored in the catalog. Discounts in the request are applied at the order level.
 - Totals use your order currency (default `USD`). VNPay expects minor units, so the backend still multiplies by 100 before signing the request.
-- An order status history entry and a pending VNPay transaction record are created atomically with the order.
+- An order status history entry and a pending provider transaction record are created atomically with the order.
+- Unsupported or unavailable providers are rejected before address persistence, inventory reservation, or order creation.
 - Cart contents are cleared after a successful checkout.
 
 ### VNPay Configuration
@@ -112,9 +115,9 @@ Populate the following environment variables (or override in `application.yml`) 
 - `404 Not Found` — referenced address doesn't belong to the user.
 - `502 Bad Gateway` — VNPay signature or configuration errors preventing payment URL generation.
 
-## POST `/payments/vnpay/confirm`
+## POST `/api/payments/{provider}/confirm`
 
-Accepts the query parameters returned by VNPay after checkout and updates the order/payment status. The payload should include all `vnp_*` fields that VNPay appended to the return URL.
+Accepts the fields returned by a payment provider after checkout and updates the order/payment status. Provider identifiers are case-insensitive. The existing VNPay URL remains `/api/payments/vnpay/confirm`.
 
 ```json
 {
@@ -130,11 +133,14 @@ Accepts the query parameters returned by VNPay after checkout and updates the or
 
 ### Behaviour
 
-- Validates the HMAC signature with your configured `vnpay.hash-secret`.
+- The route provider must match the provider stored on the payment transaction.
 - Looks up the order/payment transaction by `vnp_TxnRef` (order number).
 - If `ResponseCode` and `TransactionStatus` are `00`, the payment is marked `CAPTURED`, the order moves to `PROCESSING`, and the history table records the transition.
-- Otherwise the transaction is marked `FAILED` and the order is cancelled.
+- Incomplete or processing VNPay statuses leave the transaction `PENDING`, preserve reserved inventory, and only record the raw provider response.
+- Terminal unsuccessful statuses mark the transaction `FAILED`, cancel the order, release inventory, and record history.
 - Replaying the same payload is idempotent; the endpoint simply returns the existing state.
+
+VNPay confirmation intentionally retains the current browser-mediated setup. Callback signature and amount verification are not performed.
 
 ### Response
 

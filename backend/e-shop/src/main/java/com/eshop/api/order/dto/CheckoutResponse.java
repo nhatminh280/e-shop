@@ -2,6 +2,7 @@ package com.eshop.api.order.dto;
 
 import com.eshop.api.order.enums.OrderStatus;
 import com.eshop.api.order.enums.PaymentStatus;
+import com.eshop.api.payment.PaymentProvider;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -25,7 +26,7 @@ public class CheckoutResponse {
     private final BigDecimal totalAmount;
     private final String currency;
     private final BigDecimal totalAmountVnd;
-    private final String paymentProvider;
+    private final PaymentProvider paymentProvider;
     private final String paymentUrl;
     private final Instant paymentUrlExpiresAt;
     private final List<CheckoutItemResponse> items;
