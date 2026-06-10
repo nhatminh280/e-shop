@@ -34,6 +34,15 @@ class BackendClient(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def recommend_personalized(
+        self,
+        user_id: str | None = None,
+        recent_product_ids: list[str] | None = None,
+        limit: int = 4,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    @abstractmethod
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         raise NotImplementedError
 

@@ -59,6 +59,9 @@ class ProductCard(CamelModel):
     in_stock: bool = Field(alias="inStock")
     stock: int = 0
     reason: str | None = None
+    recommendation_rank: int | None = Field(default=None, alias="recommendationRank")
+    recommendation_score: float | None = Field(default=None, alias="recommendationScore")
+    recommendation_reason: str | None = Field(default=None, alias="recommendationReason")
 
 
 class DraftAction(CamelModel):

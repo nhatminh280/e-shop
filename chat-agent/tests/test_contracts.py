@@ -5,6 +5,7 @@ from app.clients.base_client import BackendClientError
 from app.tools.cart_tool import CartTool
 from app.tools.catalog_tool import CatalogTool
 from app.tools.order_tool import OrderTool
+from app.tools.recommendation_tool import RecommendationTool
 
 
 def test_catalog_contract_validates_required_product_fields() -> None:
@@ -31,6 +32,28 @@ def test_cart_contract_validates_shape() -> None:
 
     assert result.status == "success"
     assert {"userId", "items", "itemCount"} <= set(result.data)
+
+
+def test_personalized_recommendation_contract_returns_ranked_cards() -> None:
+    tool = RecommendationTool(MockBackendClient())
+
+    result = tool.personalized(user_id="user-1", recent_product_ids=["p003"])
+
+    assert result.status == "success"
+    assert result.data[0].recommendation_rank == 1
+    assert result.data[0].recommendation_score > 0
+    assert result.data[0].recommendation_reason
+    assert "rankedRecommendations=" in result.summary
+
+
+def test_mock_recommendation_handles_null_tags() -> None:
+    client = MockBackendClient()
+    product_with_null_tags = {**client.data["products"][0], "productId": "p-null", "slug": "null-tags", "tags": None}
+    client.data["products"].append(product_with_null_tags)
+
+    result = RecommendationTool(client).personalized(user_id="user-1", recent_product_ids=["p-null"])
+
+    assert result.status == "success"
 
 
 class InvalidCatalogClient(MockBackendClient):

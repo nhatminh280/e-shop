@@ -36,7 +36,13 @@ class BaseTool:
         return ToolResult(status="backend_error", data=None, summary="tool failed", error=exc.__class__.__name__)
 
 
-def to_product_card(product: dict[str, Any], reason: str | None = None) -> ProductCard:
+def to_product_card(
+    product: dict[str, Any],
+    reason: str | None = None,
+    recommendation_rank: int | None = None,
+    recommendation_score: float | None = None,
+    recommendation_reason: str | None = None,
+) -> ProductCard:
     product_id = product.get("productId") or product.get("id")
     if not product_id:
         raise ValueError("catalog product missing productId")
@@ -56,6 +62,9 @@ def to_product_card(product: dict[str, Any], reason: str | None = None) -> Produ
         inStock=in_stock,
         stock=stock,
         reason=reason,
+        recommendationRank=recommendation_rank,
+        recommendationScore=recommendation_score,
+        recommendationReason=recommendation_reason,
     )
 
 

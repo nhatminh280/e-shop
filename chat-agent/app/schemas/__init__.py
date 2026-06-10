@@ -11,6 +11,7 @@ from .chat import (
     ToolCallTrace,
     ToolStatus,
 )
+from .knowledge import KnowledgeDocument, KnowledgeScoreType, KnowledgeSearchResult, KnowledgeSourceType
 
 __all__ = [
     "AgentChatRequest",
@@ -24,4 +25,8 @@ __all__ = [
     "ProductCard",
     "ToolCallTrace",
     "ToolStatus",
+    "KnowledgeDocument",
+    "KnowledgeSearchResult",
+    "KnowledgeScoreType",
+    "KnowledgeSourceType",
 ]

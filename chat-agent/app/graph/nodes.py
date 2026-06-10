@@ -233,17 +233,32 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
 def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     slots = state.get("slots", {})
     recent_ids = [product.product_id for product in state.get("previous_products", [])]
-    result, tool_calls = call_tool(
-        state.get("tool_calls", []),
-        "recommend.similar",
+    use_similar = _should_use_similar_recommendation(state, recent_ids)
+    tool_name = "recommend.similar" if use_similar else "recommend.personalized"
+    request = (
         {
             "productId": slots.get("product_id"),
             "variantId": slots.get("variant_id"),
             "recentProductIds": recent_ids,
-        },
+        }
+        if use_similar
+        else {
+            "userId": state.get("user_id"),
+            "recentProductIds": recent_ids,
+        }
+    )
+    result, tool_calls = call_tool(
+        state.get("tool_calls", []),
+        tool_name,
+        request,
         lambda: tools.recommendation.similar(
             product_id=slots.get("product_id"),
             variant_id=slots.get("variant_id"),
+            recent_product_ids=recent_ids,
+        )
+        if use_similar
+        else tools.recommendation.personalized(
+            user_id=state.get("user_id"),
             recent_product_ids=recent_ids,
         ),
         trace_id=state.get("trace_id"),
@@ -252,14 +267,42 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     )
     if result.status == "success":
         return {
-            "answer": "Here are similar products.",
+            "answer": "Here are recommended products.",
             "response_type": "recommendations",
             "product_cards": result.data,
             "last_selected_product": result.data[0] if result.data else None,
             "tool_calls": tool_calls,
             "node_trace": append_node(state, "ground_response_in_tool_results"),
         }
-    return _fallback_from_tool(state, result, tool_calls, "I do not have enough product context to recommend yet.")
+    fallback_result, tool_calls = call_tool(
+        tool_calls,
+        "catalog.search",
+        {"query": "", "filters": {"in_stock": True}, "fallbackFor": tool_name},
+        lambda: tools.catalog.search(query="", filters={"in_stock": True}),
+        trace_id=state.get("trace_id"),
+        session_id=state.get("session_id"),
+        user_id=state.get("user_id"),
+    )
+    if fallback_result.status == "success":
+        return {
+            "answer": "I could not get similar recommendations, so here are popular in-stock products.",
+            "response_type": "recommendations",
+            "product_cards": fallback_result.data,
+            "last_selected_product": fallback_result.data[0] if fallback_result.data else None,
+            "tool_calls": tool_calls,
+            "fallback_count": state.get("fallback_count", 0) + 1,
+            "node_trace": append_node(state, "ground_response_in_tool_results"),
+        }
+    return _fallback_from_tool(state, fallback_result, tool_calls, "I do not have enough product context to recommend yet.")
+
+
+def _should_use_similar_recommendation(state: GraphState, recent_ids: list[str]) -> bool:
+    slots = state.get("slots", {})
+    if slots.get("product_id") or slots.get("variant_id"):
+        return True
+    text = state.get("normalized_message", state.get("message", "")).lower()
+    similar_terms = ("similar", "tuong tu", "giong", "like this", "same style", "cai nay")
+    return bool(recent_ids and any(term in text for term in similar_terms))
 
 
 def _handle_cart_action(state: GraphState) -> dict[str, Any]:

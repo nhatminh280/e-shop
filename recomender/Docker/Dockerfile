@@ -35,7 +35,11 @@ WORKDIR /app
 FROM base as dependencies
 
 # Copy requirements
+<<<<<<< HEAD
 COPY requirements.txt .
+=======
+COPY ../requirements.txt .
+>>>>>>> 0a45da9 (update path for  docker file and docker compose)
 
 # Install Python packages
 RUN pip install --upgrade pip setuptools wheel && \

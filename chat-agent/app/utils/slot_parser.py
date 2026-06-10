@@ -117,8 +117,10 @@ def extract_slots(text: str, original_message: str) -> dict[str, Any]:
             "no",
             "this product",
             "this item",
+            "this variant",
             "that product",
             "that item",
+            "that variant",
         )
     ):
         slots["product_reference"] = "current"
@@ -126,7 +128,7 @@ def extract_slots(text: str, original_message: str) -> dict[str, Any]:
     order_match = re.search(r"\bES\d{3,}\b", original_message, flags=re.IGNORECASE)
     if order_match:
         slots["order_id"] = order_match.group(0).upper()
-    elif "gan nhat" in text:
+    elif any(term in text for term in ("gan nhat", "latest order", "most recent order")):
         slots["order_id"] = "latest"
 
     product_id_match = re.search(r"\bp\d{3,}\b", text, flags=re.IGNORECASE)
