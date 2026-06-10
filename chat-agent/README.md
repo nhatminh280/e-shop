@@ -263,6 +263,12 @@ cd chat-agent
 .venv/bin/python -m evaluation.runner
 ```
 
+The evaluation runner is offline by default: it disables LangSmith upload unless tracing is explicitly enabled in the shell. To upload eval traces intentionally, run with:
+
+```bash
+LANGSMITH_TRACING=true .venv/bin/python -m evaluation.runner
+```
+
 The prompt-compatible runner path also works:
 
 ```bash
@@ -277,7 +283,28 @@ The baseline tracks:
 - schema validity rate
 - no-mutation-without-confirmation rate
 - fallback rate
+- grounded answer substring checks for policy/FAQ cases
+- knowledge source id checks for `knowledge.retrieve`
+
+Recommendation coverage includes `recommend.similar` for contextual product requests and `recommend.personalized` for generic recommendation requests. Both paths return ranked product cards and use catalog fallback when the recommender returns no usable result.
+
+## Local RAG Knowledge
+
+The mock agent uses local retrieval for Phase 5 development:
+
+- policy, FAQ, shipping, payment, return/refund, and size-guide docs are loaded from `app/data/knowledge/*.md`
+- product knowledge records are derived from the mock catalog
+- `app.knowledge.ingestion` builds deterministic `policies_faq` and `products_knowledge` records
+- `app.knowledge.vector_index.LocalHybridKnowledgeIndex` ranks records locally and returns `scoreType="hybrid"`
+- `knowledge.retrieve` validates every payload through `KnowledgeSearchResult` and returns source ids in tool traces
+
+Targeted RAG tests:
+
+```bash
+cd chat-agent
+.venv/bin/python -m pytest tests/test_knowledge_loader.py tests/test_knowledge_ingestion.py tests/test_knowledge_vector_index.py tests/test_knowledge_retrieval.py -q
+```
 
 ## Out Of Scope
 
-The current Phase 2/3 scope does not implement payment, checkout, real database access, real websocket support, production auth, full RAG ingestion, or ML recommender training.
+The current Phase 2/3/5 mock-agent scope does not implement payment, checkout, real database access, real websocket support, production auth, Qdrant/pgvector persistence, or ML recommender training.

@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Evaluation should be deterministic and offline by default. Developers can
+# still opt into trace upload with an explicit shell env override.
+os.environ.setdefault("LANGSMITH_TRACING", "false")
+os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
 
 from app.main import chat
 from app.schemas import AgentChatRequest
@@ -83,6 +89,7 @@ def _evaluate_case(case: dict[str, Any], index: int) -> dict[str, Any]:
         error = f"{exc.__class__.__name__}: {exc}"
 
     observed_tools = [tool["toolName"] for tool in body.get("toolCalls", [])]
+    observed_tool_statuses = _tool_statuses(body.get("toolCalls", []))
     required_slots = expected.get("requiredSlots", {})
     slot_checks = {
         key: body.get("slots", {}).get(key) == value
@@ -90,6 +97,22 @@ def _evaluate_case(case: dict[str, Any], index: int) -> dict[str, Any]:
     }
     expected_tools = expected.get("toolCalls", [])
     tool_selection_pass = all(tool in observed_tools for tool in expected_tools)
+    expected_tool_sequence = expected.get("toolCallSequence")
+    tool_sequence_pass = expected_tool_sequence is None or observed_tools == expected_tool_sequence
+    expected_tool_statuses = expected.get("toolStatuses")
+    tool_statuses_pass = expected_tool_statuses is None or all(
+        observed_tool_statuses.get(tool_name) == status
+        for tool_name, status in expected_tool_statuses.items()
+    )
+    expected_answer = expected.get("answerContains")
+    answer_contains_pass = expected_answer is None or expected_answer in body.get("answer", "")
+    expected_fallback_count = expected.get("fallbackCount")
+    fallback_count_pass = expected_fallback_count is None or body.get("fallbackCount", 0) == expected_fallback_count
+    expected_knowledge_source = expected.get("knowledgeSourceId")
+    knowledge_source_pass = expected_knowledge_source is None or _has_knowledge_source(
+        body.get("toolCalls", []),
+        expected_knowledge_source,
+    )
     no_mutation_without_confirmation = _check_no_mutation_without_confirmation(
         body,
         observed_tools,
@@ -102,6 +125,11 @@ def _evaluate_case(case: dict[str, Any], index: int) -> dict[str, Any]:
         "response_type": body.get("responseType") == expected.get("responseType"),
         "slots": all(slot_checks.values()),
         "tools": tool_selection_pass,
+        "tool_sequence": tool_sequence_pass,
+        "tool_statuses": tool_statuses_pass,
+        "answer_contains": answer_contains_pass,
+        "fallback_count": fallback_count_pass,
+        "knowledge_source": knowledge_source_pass,
         "no_mutation_without_confirmation": no_mutation_without_confirmation,
     }
     return {
@@ -114,6 +142,8 @@ def _evaluate_case(case: dict[str, Any], index: int) -> dict[str, Any]:
             "responseType": body.get("responseType"),
             "slots": body.get("slots", {}),
             "toolCalls": observed_tools,
+            "toolStatuses": observed_tool_statuses,
+            "knowledgeSourceIds": _knowledge_source_ids(body.get("toolCalls", [])),
             "needsConfirmation": body.get("needsConfirmation"),
             "draftAction": body.get("draftAction"),
             "fallbackCount": body.get("fallbackCount", 0),
@@ -123,6 +153,30 @@ def _evaluate_case(case: dict[str, Any], index: int) -> dict[str, Any]:
         "passed": all(checks.values()),
         "error": error,
     }
+
+
+def _tool_statuses(tool_calls: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        tool["toolName"]: tool.get("status", "")
+        for tool in tool_calls
+    }
+
+
+def _has_knowledge_source(tool_calls: list[dict[str, Any]], source_id: str) -> bool:
+    return source_id in _knowledge_source_ids(tool_calls)
+
+
+def _knowledge_source_ids(tool_calls: list[dict[str, Any]]) -> list[str]:
+    source_ids: list[str] = []
+    for tool in tool_calls:
+        if tool.get("toolName") != "knowledge.retrieve":
+            continue
+        summary = tool.get("responseSummary", "")
+        for segment in summary.split(";"):
+            key, _, value = segment.strip().partition("=")
+            if key == "sourceIds":
+                source_ids.extend(source_id for source_id in value.split(",") if source_id)
+    return source_ids
 
 
 def _check_no_mutation_without_confirmation(

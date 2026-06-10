@@ -118,10 +118,24 @@ class SpringBackendClient(BackendClient):
         params = {
             "productId": product_id,
             "variantId": variant_id,
-            "recentProductIds": ",".join(recent_product_ids or []),
+            "recentProductIds": recent_product_ids or [],
             "limit": limit,
         }
         payload = self._get("/api/recommendations/similar", {key: value for key, value in params.items() if value})
+        return _extract_list(payload, "products")
+
+    def recommend_personalized(
+        self,
+        user_id: str | None = None,
+        recent_product_ids: list[str] | None = None,
+        limit: int = 4,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "userId": user_id,
+            "recentProductIds": recent_product_ids or [],
+            "limit": limit,
+        }
+        payload = self._get("/api/recommendations/personalized", {key: value for key, value in params.items() if value})
         return _extract_list(payload, "products")
 
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
