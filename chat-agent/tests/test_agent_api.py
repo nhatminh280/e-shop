@@ -69,6 +69,53 @@ def test_unauthenticated_order_requires_sign_in() -> None:
     assert body["toolCalls"] == []
 
 
+def test_latest_order_english_uses_order_list() -> None:
+    response = chat(
+        AgentChatRequest(
+            sessionId="latest-order-english",
+            message="latest order",
+            authenticated=True,
+            userId="user-1",
+        )
+    )
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "order_status"
+    assert body["responseType"] == "order_status"
+    assert body["slots"]["order_id"] == "latest"
+    assert body["toolCalls"][0]["toolName"] == "order.list"
+
+
+def test_signed_in_order_followup_does_not_route_to_login_faq() -> None:
+    response = chat(
+        AgentChatRequest(
+            sessionId="signed-in-order-followup",
+            message="I already signed in, check my order",
+            authenticated=True,
+            userId="user-1",
+        )
+    )
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "order_status"
+    assert body["responseType"] == "clarification"
+    assert body["toolCalls"] == []
+
+
+def test_variant_cart_reference_creates_draft() -> None:
+    session_id = "variant-cart-reference"
+    first = chat(AgentChatRequest(sessionId=session_id, message="ao khoac den size M"))
+    first_body = first.model_dump(by_alias=True)
+
+    response = chat(AgentChatRequest(sessionId=session_id, message="add this variant to my cart"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "cart_action"
+    assert body["responseType"] == "draft_action"
+    assert body["draftAction"]["actionType"] == "cart.add"
+    assert body["draftAction"]["payload"]["productId"] == first_body["productCards"][0]["productId"]
+
+
 def test_empty_message_rejected() -> None:
     with pytest.raises(ValidationError):
         AgentChatRequest(sessionId="empty-test", message="")
@@ -84,7 +131,78 @@ def test_recommendation_flow_uses_previous_products() -> None:
     assert body["intent"] == "recommendation"
     assert body["responseType"] == "recommendations"
     assert body["productCards"]
+    assert body["productCards"][0]["recommendationRank"] == 1
+    assert body["productCards"][0]["recommendationScore"] > 0
+    assert body["productCards"][0]["recommendationReason"]
     assert body["toolCalls"][0]["toolName"] == "recommend.similar"
+    assert "rankedRecommendations=" in body["toolCalls"][0]["responseSummary"]
+
+
+def test_vietnamese_accented_similar_request_uses_normalized_message() -> None:
+    session_id = "recommend-accent-session"
+    chat(AgentChatRequest(sessionId=session_id, message="ao khoac den size M"))
+
+    response = chat(AgentChatRequest(sessionId=session_id, message="gợi ý sản phẩm tương tự"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "recommendation"
+    assert body["responseType"] == "recommendations"
+    assert body["toolCalls"][0]["toolName"] == "recommend.similar"
+
+
+def test_generic_recommendation_uses_personalized_tool() -> None:
+    response = chat(AgentChatRequest(sessionId="personalized-recommend-session", message="recommend something for me"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "recommendation"
+    assert body["responseType"] == "recommendations"
+    assert body["productCards"]
+    assert body["productCards"][0]["recommendationRank"] == 1
+    assert body["productCards"][0]["recommendationScore"] > 0
+    assert body["productCards"][0]["recommendationReason"]
+    assert body["toolCalls"][0]["toolName"] == "recommend.personalized"
+    assert "rankedRecommendations=" in body["toolCalls"][0]["responseSummary"]
+
+
+@pytest.mark.parametrize("status", ["empty_result", "timeout"])
+def test_recommendation_falls_back_to_catalog_cards(monkeypatch: pytest.MonkeyPatch, status: str) -> None:
+    class FailingRecommendation:
+        def similar(self, product_id=None, variant_id=None, recent_product_ids=None):
+            return graph_nodes.ToolResult(status=status, data=[], summary=f"recommendation {status}")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", FailingRecommendation())
+    session_id = f"recommend-fallback-{status}"
+    chat(AgentChatRequest(sessionId=session_id, message="ao khoac den size M"))
+
+    response = chat(AgentChatRequest(sessionId=session_id, message="goi y san pham tuong tu"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "recommendation"
+    assert body["responseType"] == "recommendations"
+    assert body["productCards"]
+    assert body["fallbackCount"] == 1
+    assert [tool["toolName"] for tool in body["toolCalls"]] == ["recommend.similar", "catalog.search"]
+    assert body["toolCalls"][0]["status"] == status
+    assert body["toolCalls"][1]["status"] == "success"
+
+
+def test_personalized_recommendation_falls_back_to_catalog_cards(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FailingRecommendation:
+        def personalized(self, user_id=None, recent_product_ids=None):
+            return graph_nodes.ToolResult(status="empty_result", data=[], summary="0 personalized recommendations")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", FailingRecommendation())
+
+    response = chat(AgentChatRequest(sessionId="personalized-fallback", message="recommend something for me"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "recommendation"
+    assert body["responseType"] == "recommendations"
+    assert body["productCards"]
+    assert body["fallbackCount"] == 1
+    assert [tool["toolName"] for tool in body["toolCalls"]] == ["recommend.personalized", "catalog.search"]
+    assert body["toolCalls"][0]["status"] == "empty_result"
+    assert body["toolCalls"][1]["status"] == "success"
 
 
 def test_follow_up_contextual_cart_reference() -> None:
@@ -186,4 +304,40 @@ def test_tool_timeout_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["toolCalls"][0]["status"] == "timeout"
     assert body["toolCalls"][0]["requestSummary"]
     assert body["toolCalls"][0]["responseSummary"] == "backend client error"
+    assert body["fallbackCount"] == 1
+
+
+def test_policy_answer_tool_trace_includes_source_metadata() -> None:
+    response = chat(AgentChatRequest(sessionId="policy-source-trace", message="shipping fees standard domestic"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "policy_or_faq"
+    assert body["responseType"] == "answer"
+    assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
+    assert "sourceIds=shipping" in body["toolCalls"][0]["responseSummary"]
+
+
+def test_product_knowledge_question_uses_rag_source() -> None:
+    response = chat(
+        AgentChatRequest(
+            sessionId="product-knowledge-source",
+            message="is the torrentshell jacket waterproof and how do i care for it",
+        )
+    )
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "policy_or_faq"
+    assert body["responseType"] == "answer"
+    assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
+    assert "sourceIds=product-p003" in body["toolCalls"][0]["responseSummary"]
+    assert "Patagonia Torrentshell 3L Jacket" in body["answer"]
+
+
+def test_low_confidence_policy_retrieval_falls_back() -> None:
+    response = chat(AgentChatRequest(sessionId="policy-low-confidence", message="return carbon bicycle frame warranty"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "policy_or_faq"
+    assert body["responseType"] == "empty_result"
+    assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
     assert body["fallbackCount"] == 1

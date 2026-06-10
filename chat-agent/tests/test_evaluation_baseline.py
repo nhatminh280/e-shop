@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.graph import nodes as graph_nodes
+from app.tools.base import ToolResult
 from evaluation import evaluate_cases, load_cases
 
 
@@ -30,3 +32,192 @@ def test_phase3_dataset_locks_required_categories() -> None:
         "policy_or_faq",
         "unsafe_malformed",
     } <= categories
+
+
+def test_phase5_dataset_covers_all_knowledge_sources() -> None:
+    source_ids = {
+        case["expected"]["knowledgeSourceId"]
+        for case in load_cases()
+        if case["category"] == "policy_or_faq" and "knowledgeSourceId" in case["expected"]
+    }
+
+    assert source_ids == {
+        "faq-account",
+        "faq-order",
+        "faq-product",
+        "payment",
+        "return-refund",
+        "shipping",
+        "size-guide",
+    }
+
+
+def test_evaluation_checks_expected_answer_content() -> None:
+    result = evaluate_cases(
+        [
+            {
+                "id": "answer_contains_negative_check",
+                "category": "policy_or_faq",
+                "message": "return policy",
+                "expected": {
+                    "intent": "policy_or_faq",
+                    "responseType": "answer",
+                    "requiredSlots": {},
+                    "toolCalls": ["knowledge.retrieve"],
+                    "requiresConfirmation": False,
+                    "answerContains": "this phrase is not in the answer",
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["answer_contains"] is False
+    assert result.case_results[0]["passed"] is False
+
+
+def test_evaluation_checks_expected_knowledge_source_id() -> None:
+    result = evaluate_cases(
+        [
+            {
+                "id": "knowledge_source_negative_check",
+                "category": "policy_or_faq",
+                "message": "shipping fees standard domestic",
+                "expected": {
+                    "intent": "policy_or_faq",
+                    "responseType": "answer",
+                    "requiredSlots": {},
+                    "toolCalls": ["knowledge.retrieve"],
+                    "requiresConfirmation": False,
+                    "knowledgeSourceId": "payment",
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["knowledge_source"] is False
+    assert result.case_results[0]["passed"] is False
+
+
+def test_evaluation_checks_expected_tool_call_sequence() -> None:
+    result = evaluate_cases(
+        [
+            {
+                "id": "tool_sequence_negative_check",
+                "category": "recommendation",
+                "setupMessages": ["ao khoac den size M"],
+                "message": "goi y san pham tuong tu",
+                "expected": {
+                    "intent": "recommendation",
+                    "responseType": "recommendations",
+                    "requiredSlots": {},
+                    "toolCalls": ["recommend.similar"],
+                    "toolCallSequence": ["catalog.search", "recommend.similar"],
+                    "requiresConfirmation": False,
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["tool_sequence"] is False
+    assert result.case_results[0]["passed"] is False
+
+
+def test_evaluation_covers_recommendation_empty_result_fallback(monkeypatch) -> None:
+    class EmptyRecommendation:
+        def similar(self, product_id=None, variant_id=None, recent_product_ids=None):
+            return ToolResult(status="empty_result", data=[], summary="0 recommendations")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", EmptyRecommendation())
+
+    result = evaluate_cases(
+        [
+            {
+                "id": "recommendation_empty_result_fallback",
+                "category": "recommendation_fallback",
+                "setupMessages": ["ao khoac den size M"],
+                "message": "goi y san pham tuong tu",
+                "expected": {
+                    "intent": "recommendation",
+                    "responseType": "recommendations",
+                    "requiredSlots": {},
+                    "toolCalls": ["recommend.similar", "catalog.search"],
+                    "toolCallSequence": ["recommend.similar", "catalog.search"],
+                    "fallbackCount": 1,
+                    "requiresConfirmation": False,
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["fallback_count"] is True
+    assert result.case_results[0]["passed"] is True
+
+
+def test_evaluation_covers_recommendation_timeout_fallback(monkeypatch) -> None:
+    class TimeoutRecommendation:
+        def similar(self, product_id=None, variant_id=None, recent_product_ids=None):
+            return ToolResult(status="timeout", data=[], summary="recommendation timeout")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", TimeoutRecommendation())
+
+    result = evaluate_cases(
+        [
+            {
+                "id": "recommendation_timeout_fallback",
+                "category": "recommendation_fallback",
+                "setupMessages": ["ao khoac den size M"],
+                "message": "goi y san pham tuong tu",
+                "expected": {
+                    "intent": "recommendation",
+                    "responseType": "recommendations",
+                    "requiredSlots": {},
+                    "toolCalls": ["recommend.similar", "catalog.search"],
+                    "toolCallSequence": ["recommend.similar", "catalog.search"],
+                    "toolStatuses": {
+                        "recommend.similar": "timeout",
+                        "catalog.search": "success",
+                    },
+                    "fallbackCount": 1,
+                    "requiresConfirmation": False,
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["tool_statuses"] is True
+    assert result.case_results[0]["passed"] is True
+
+
+def test_evaluation_covers_recommendation_validation_error_fallback(monkeypatch) -> None:
+    class InvalidRecommendation:
+        def similar(self, product_id=None, variant_id=None, recent_product_ids=None):
+            return ToolResult(status="validation_error", data=[], summary="invalid recommendation payload")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", InvalidRecommendation())
+
+    result = evaluate_cases(
+        [
+            {
+                "id": "recommendation_validation_error_fallback",
+                "category": "recommendation_fallback",
+                "setupMessages": ["ao khoac den size M"],
+                "message": "goi y san pham tuong tu",
+                "expected": {
+                    "intent": "recommendation",
+                    "responseType": "recommendations",
+                    "requiredSlots": {},
+                    "toolCalls": ["recommend.similar", "catalog.search"],
+                    "toolCallSequence": ["recommend.similar", "catalog.search"],
+                    "toolStatuses": {
+                        "recommend.similar": "validation_error",
+                        "catalog.search": "success",
+                    },
+                    "fallbackCount": 1,
+                    "requiresConfirmation": False,
+                },
+            }
+        ]
+    )
+
+    assert result.case_results[0]["checks"]["tool_statuses"] is True
+    assert result.case_results[0]["passed"] is True

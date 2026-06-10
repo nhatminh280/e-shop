@@ -5,6 +5,8 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+from app.knowledge import LocalHybridKnowledgeIndex, load_all_knowledge_records
+
 from .base_client import BackendClient
 
 
@@ -16,6 +18,27 @@ class MockBackendClient(BackendClient):
     def data(self) -> dict[str, Any]:
         with self.data_path.open(encoding="utf-8") as file:
             return json.load(file)
+
+    @cached_property
+    def knowledge_documents(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "sourceId": record.source_id,
+                "sourceType": record.source_type,
+                "title": record.title,
+                "locale": record.locale,
+                "body": record.text,
+                "score": 0.0,
+                "scoreType": "hybrid",
+                "matchedTokenCount": 0,
+                "matchedTokens": [],
+            }
+            for record in self.knowledge_index.records
+        ]
+
+    @cached_property
+    def knowledge_index(self) -> LocalHybridKnowledgeIndex:
+        return LocalHybridKnowledgeIndex.from_records(load_all_knowledge_records(self.data["products"]))
 
     def catalog_search(self, query: str, filters: dict[str, Any] | None = None, limit: int = 4) -> list[dict[str, Any]]:
         filters = filters or {}
@@ -83,12 +106,48 @@ class MockBackendClient(BackendClient):
                 product
                 for product in self.data["products"]
                 if product["productId"] != anchor["productId"]
-                and (product["category"] == anchor["category"] or set(product["tags"]) & set(anchor["tags"]))
+                and (product["category"] == anchor["category"] or set(_product_tags(product)) & set(_product_tags(anchor)))
             ]
             if products:
                 return products[:limit]
             return [product for product in self.data["products"] if product["productId"] != anchor["productId"]][:limit]
         return self.catalog_search(query="", limit=limit)
+
+    def recommend_personalized(
+        self,
+        user_id: str | None = None,
+        recent_product_ids: list[str] | None = None,
+        limit: int = 4,
+    ) -> list[dict[str, Any]]:
+        recent_products = [
+            product
+            for product_id in recent_product_ids or []
+            if (product := self.catalog_detail(product_id))
+        ]
+        recent_categories = {product["category"] for product in recent_products}
+        recent_tags = set().union(*(set(_product_tags(product)) for product in recent_products)) if recent_products else set()
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for product in self.data["products"]:
+            if product["productId"] in set(recent_product_ids or []):
+                continue
+            score = 0.35 + min(product.get("stock", 0), 20) / 100
+            reasons: list[str] = []
+            if product["category"] in recent_categories:
+                score += 0.35
+                reasons.append("same category as recently viewed")
+            if set(_product_tags(product)) & recent_tags:
+                score += 0.25
+                reasons.append("matches recent browsing tags")
+            if not reasons:
+                reasons.append("popular in-stock product")
+            scored.append((round(min(score, 0.99), 4), {**product, "recommendationReason": "; ".join(reasons)}))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            {**product, "recommendationRank": index + 1, "recommendationScore": score}
+            for index, (score, product) in enumerate(scored[:limit])
+        ]
 
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         return {"userId": user_id, "items": [], "itemCount": 0}
@@ -108,15 +167,7 @@ class MockBackendClient(BackendClient):
         return self.data["products"][0] if product_id is None else self.catalog_detail(product_id)
 
     def knowledge_retrieve(self, query: str, limit: int = 2) -> list[dict[str, Any]]:
-        query_tokens = set(query.lower().split())
-        scored: list[tuple[int, dict[str, Any]]] = []
-        for doc in self.data["knowledge"]:
-            text = f"{doc['title']} {doc['body']}".lower()
-            score = sum(1 for token in query_tokens if token in text)
-            if score:
-                scored.append((score, doc))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [doc for _, doc in scored[:limit]]
+        return self.knowledge_index.retrieve(query, limit=limit)
 
     def support_create(self, payload: dict[str, Any]) -> dict[str, Any]:
         return {"conversationId": "mock-support-conversation", "status": "created", **payload}
@@ -126,3 +177,7 @@ class MockBackendClient(BackendClient):
 
     def cancel_draft_action(self, draft_action_id: str) -> dict[str, Any]:
         return {"draftActionId": draft_action_id, "status": "cancelled"}
+
+
+def _product_tags(product: dict[str, Any]) -> list[str]:
+    return list(product.get("tags") or [])

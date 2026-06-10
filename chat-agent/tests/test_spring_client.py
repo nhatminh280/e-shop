@@ -124,3 +124,30 @@ def test_spring_client_unauthorized_does_not_open_circuit(monkeypatch: pytest.Mo
     assert first.value.status == "unauthorized"
     assert second.value.status == "unauthorized"
     assert calls == 2
+
+
+def test_spring_recommendations_send_recent_product_ids_as_repeated_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_params: dict[str, Any] | None = None
+
+    class CapturingClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            nonlocal captured_params
+            captured_params = params
+            return httpx.Response(200, json={"products": []}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", CapturingClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    client.recommend_personalized(user_id="user-1", recent_product_ids=["p001", "p002"])
+
+    assert captured_params is not None
+    assert captured_params["recentProductIds"] == ["p001", "p002"]
