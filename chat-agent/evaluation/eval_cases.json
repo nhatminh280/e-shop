@@ -1,0 +1,273 @@
+[
+  {
+    "id": "product_search_jacket_black_m",
+    "category": "product_search",
+    "message": "ao khoac den size M con hang khong",
+    "expected": {
+      "intent": "product_search",
+      "responseType": "product_results",
+      "requiredSlots": {
+        "category": "jacket",
+        "color": "black",
+        "size": "M",
+        "in_stock": true
+      },
+      "toolCalls": ["catalog.search"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "filter_shoes_men_under_500k_empty",
+    "category": "filter_by_price",
+    "message": "giay nam duoi 500k",
+    "expected": {
+      "intent": "product_search",
+      "responseType": "empty_result",
+      "requiredSlots": {
+        "category": "shoes",
+        "gender": "men",
+        "price_max": 500000
+      },
+      "toolCalls": ["catalog.search"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "recommendation_from_previous_product",
+    "category": "recommendation",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "goi y san pham tuong tu",
+    "expected": {
+      "intent": "recommendation",
+      "responseType": "recommendations",
+      "requiredSlots": {},
+      "toolCalls": ["recommend.similar"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "recommendation_accented_vietnamese_similar",
+    "category": "recommendation",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "gợi ý sản phẩm tương tự",
+    "expected": {
+      "intent": "recommendation",
+      "responseType": "recommendations",
+      "requiredSlots": {},
+      "toolCalls": ["recommend.similar"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "personalized_recommendation_generic",
+    "category": "recommendation",
+    "message": "recommend something for me",
+    "expected": {
+      "intent": "recommendation",
+      "responseType": "recommendations",
+      "requiredSlots": {},
+      "toolCalls": ["recommend.personalized"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "order_lookup_authenticated",
+    "category": "order_status",
+    "message": "check order ES123",
+    "authenticated": true,
+    "userId": "user-1",
+    "expected": {
+      "intent": "order_status",
+      "responseType": "order_status",
+      "requiredSlots": {
+        "order_id": "ES123"
+      },
+      "toolCalls": ["order.lookup"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "latest_order_authenticated",
+    "category": "order_status",
+    "message": "don hang gan nhat",
+    "authenticated": true,
+    "userId": "user-1",
+    "expected": {
+      "intent": "order_status",
+      "responseType": "order_status",
+      "requiredSlots": {
+        "order_id": "latest"
+      },
+      "toolCalls": ["order.list"],
+      "requiresConfirmation": false
+    }
+  },
+  {
+    "id": "cart_add_first_product_draft",
+    "category": "cart_draft",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "them cai dau tien vao gio",
+    "expected": {
+      "intent": "cart_action",
+      "responseType": "draft_action",
+      "requiredSlots": {
+        "ordinal": 0,
+        "action_type": "add"
+      },
+      "toolCalls": ["cart.get", "cart.add_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "cart_update_quantity_draft",
+    "category": "cart_draft",
+    "setupMessages": ["ao khoac den size M"],
+    "message": "tang so luong len 2",
+    "expected": {
+      "intent": "cart_action",
+      "responseType": "draft_action",
+      "requiredSlots": {
+        "quantity": 2,
+        "action_type": "update_quantity"
+      },
+      "toolCalls": ["cart.get", "cart.update_quantity_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "support_handoff_draft",
+    "category": "support_handoff",
+    "message": "toi muon gap nhan vien ho tro",
+    "expected": {
+      "intent": "support_handoff",
+      "responseType": "handoff",
+      "requiredSlots": {},
+      "toolCalls": ["support.create_draft"],
+      "requiresConfirmation": true
+    }
+  },
+  {
+    "id": "policy_return_answer",
+    "category": "policy_or_faq",
+    "message": "return policy",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "return-refund",
+      "answerContains": "30 days of receiving your order"
+    }
+  },
+  {
+    "id": "policy_shipping_answer",
+    "category": "policy_or_faq",
+    "message": "shipping fees standard domestic",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "shipping",
+      "answerContains": "30,000 VND flat"
+    }
+  },
+  {
+    "id": "policy_payment_answer",
+    "category": "policy_or_faq",
+    "message": "cash on delivery payment",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "payment",
+      "answerContains": "Cash on Delivery"
+    }
+  },
+  {
+    "id": "policy_size_guide_answer",
+    "category": "policy_or_faq",
+    "message": "between sizes size guide",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "size-guide",
+      "answerContains": "choose the larger size"
+    }
+  },
+  {
+    "id": "faq_account_password_reset_answer",
+    "category": "policy_or_faq",
+    "message": "password reset link expired",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "faq-account",
+      "answerContains": "reset link valid for 30 minutes"
+    }
+  },
+  {
+    "id": "faq_order_invoice_answer",
+    "category": "policy_or_faq",
+    "message": "how do i download an invoice",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "faq-order",
+      "answerContains": "Download Invoice"
+    }
+  },
+  {
+    "id": "faq_product_variant_answer",
+    "category": "policy_or_faq",
+    "message": "why does the same product have multiple variants",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "faq-product",
+      "answerContains": "product is a family of variants"
+    }
+  },
+  {
+    "id": "product_knowledge_material_care",
+    "category": "product_knowledge",
+    "message": "is the torrentshell jacket waterproof and how do i care for it",
+    "expected": {
+      "intent": "policy_or_faq",
+      "responseType": "answer",
+      "requiredSlots": {},
+      "toolCalls": ["knowledge.retrieve"],
+      "requiresConfirmation": false,
+      "knowledgeSourceId": "product-p003",
+      "answerContains": "Patagonia Torrentshell 3L Jacket is positioned as a waterproof shell product"
+    }
+  },
+  {
+    "id": "malformed_prompt_too_long",
+    "category": "unsafe_malformed",
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "expected": {
+      "intent": "fallback",
+      "responseType": "clarification",
+      "requiredSlots": {},
+      "toolCalls": [],
+      "requiresConfirmation": false
+    }
+  }
+]
