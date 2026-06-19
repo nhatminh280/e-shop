@@ -1,6 +1,7 @@
 package com.eshop.api.order.repository;
 
 import com.eshop.api.order.enums.PaymentStatus;
+import com.eshop.api.order.model.Order;
 import com.eshop.api.order.model.PaymentTransaction;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
@@ -14,6 +15,8 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -29,7 +32,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     @Query("SELECT pt FROM PaymentTransaction pt WHERE pt.order.orderNumber = :orderNumber ORDER BY pt.createdAt DESC LIMIT 1")
     Optional<PaymentTransaction> findTopByOrderNumberWithLock(@Param("orderNumber") String orderNumber);
 
-    java.util.List<PaymentTransaction> findByOrder_OrderNumberOrderByCreatedAtDesc(String orderNumber);
+    List<PaymentTransaction> findByOrder_OrderNumberOrderByCreatedAtDesc(String orderNumber);
+
+    List<PaymentTransaction> findByOrderInAndStatus(Collection<Order> orders,
+                                                    PaymentStatus status);
 
     @Query("""
         SELECT SUM(COALESCE(pt.capturedAmount, pt.amount))
