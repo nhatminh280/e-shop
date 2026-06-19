@@ -232,7 +232,7 @@ services:
       - "${RECOM_GRADIO_PORT:-7860}:7860"
     volumes:
       - ../etl/data:/app/data
-      - ../etl/testAPI.py:/app/testAPI.py
+      - ../etl/Content_Base_Model/testAPI.py:/app/testAPI.py
     depends_on:
       - api
     networks:
