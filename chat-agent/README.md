@@ -39,13 +39,13 @@ curl -X POST http://127.0.0.1:8010/agent/chat \
 Mock mode is the default:
 
 ```bash
-USE_MOCK_BACKEND=true python -m uvicorn app.main:app --reload --port 8010
+MOCK_BACKEND=true python -m uvicorn app.main:app --reload --port 8010
 ```
 
 HTTP backend mode is enabled only by env var:
 
 ```bash
-USE_MOCK_BACKEND=false \
+MOCK_BACKEND=false \
 BACKEND_BASE_URL=http://localhost:8080 \
 BACKEND_TIMEOUT_SECONDS=2 \
 BACKEND_RETRIES=1 \
@@ -53,6 +53,18 @@ BACKEND_CIRCUIT_FAILURE_THRESHOLD=3 \
 BACKEND_CIRCUIT_COOLDOWN_SECONDS=10 \
 python -m uvicorn app.main:app --reload --port 8010
 ```
+
+`USE_MOCK_BACKEND` remains supported as a legacy alias. When both are set, `MOCK_BACKEND` wins.
+
+Before running full chat gateway tests, verify the Spring backend contract from the chat-agent side:
+
+```bash
+MOCK_BACKEND=false \
+BACKEND_BASE_URL=http://localhost:8080 \
+python -m app.evaluation.backend_smoke --query shirt --limit 1
+```
+
+The smoke command checks catalog search, product detail enrichment, and similar recommendation fallback safety. A recommendation count of `0` is acceptable when the downstream recommender service is unavailable, as long as the command exits successfully and catalog search/detail pass.
 
 The Spring client is an HTTPX adapter only. It does not implement backend business logic and does not write to a database.
 The circuit breaker stops short-lived retry storms when the backend is unavailable; after the cooldown it allows a probe request and resets on success.

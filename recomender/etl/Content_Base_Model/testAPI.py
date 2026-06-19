@@ -13,9 +13,17 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
-import pathlib 
+import os
+import pathlib
+from pathlib import Path
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("API_URL", "http://localhost:8000")
+APP_DIR = pathlib.Path(__file__).resolve().parent
+DATA_DIR = pathlib.Path(os.getenv("DATA_DIR", APP_DIR / "data"))
+if not DATA_DIR.exists():
+    DATA_DIR = APP_DIR.parent / "data"
+PROCESSED_DIR = DATA_DIR / "processed"
+PROJECT_ROOT = DATA_DIR.parent
 
 # ==============================================================
 # Load Product Data
@@ -24,15 +32,11 @@ def load_product_data():
     """Load product metadata and image paths from item_features.csv"""
     try:
         import pandas as pd
-        import os
-        from pathlib import Path
 
         # Load item_features.csv with image_path column
-        csv_path = "../data/processed/item_features.csv"
+        csv_path = PROCESSED_DIR / "item_features.csv"
         df = pd.read_csv(csv_path)
-
-        # Resolve repository root (project root = e-shop/)
-        repo_root = Path(__file__).resolve().parents[3]
+        image_map = load_local_image_mapping()
 
         # Mapping dicts
         names_dict = {}
@@ -55,11 +59,11 @@ def load_product_data():
 
             # Try candidate locations (first existing wins)
             candidates = [
-                repo_root / s,                                 # e.g. recomender/etl/data/...
-                repo_root / "recomender" / "etl" / s,          # in case stored without project root
-                repo_root / "data" / "raw" / p.name,           # data/raw/filename.jpg
-                repo_root / "data" / "processed" / p.name,     # data/processed/filename.jpg
-                repo_root / p.name                             # file at project root
+                PROJECT_ROOT / s,                              # e.g. etl/data/...
+                DATA_DIR / "raw" / p.name,                     # data/raw/filename.jpg
+                PROCESSED_DIR / p.name,                        # data/processed/filename.jpg
+                PROJECT_ROOT / "recomender" / "etl" / s,       # older local e-shop-root paths
+                PROJECT_ROOT / p.name                          # file at project root
             ]
 
             for c in candidates:
@@ -77,8 +81,8 @@ def load_product_data():
 
             names_dict[variant_id] = row.get('product_name', f"Product {variant_id}")
 
-            # Get image_path from CSV and resolve it
-            raw_image_path = row.get('image_path', None)
+            # Prefer local downloaded images; remote source URLs may return HTML.
+            raw_image_path = image_map.get(variant_id) or row.get('image_path') or row.get('primary_image_url')
             resolved = resolve_image_path(raw_image_path)
             images_dict[variant_id] = resolved
 
@@ -93,14 +97,54 @@ def load_product_data():
         print(f"Error loading product data from item_features.csv: {e}")
         # Fallback to numpy files
         try:
-            variant_ids = np.load("../data/processed/hybrid_variant_ids.npy", allow_pickle=True)
-            product_names = np.load("../data/processed/product_names.npy", allow_pickle=True)
+            variant_ids = np.load(PROCESSED_DIR / "hybrid_variant_ids.npy", allow_pickle=True)
+            product_names = np.load(PROCESSED_DIR / "product_names.npy", allow_pickle=True)
             return {
                 'names': {str(vid): name for vid, name in zip(variant_ids, product_names)},
                 'images': {str(vid): None for vid in variant_ids}
             }
         except:
             return {'names': {}, 'images': {}}
+
+def load_local_image_mapping() -> Dict[str, str]:
+    """Load variant_id -> local image path for downloaded product images."""
+    mapping: Dict[str, str] = {}
+    mapping_paths = [
+        DATA_DIR / "raw" / "mapped_images" / "variant_image_mapping.csv",
+        PROCESSED_DIR / "variant_image_mapping.csv",
+    ]
+
+    for mapping_path in mapping_paths:
+        if not mapping_path.exists():
+            continue
+
+        try:
+            df = pd.read_csv(mapping_path)
+        except Exception as exc:
+            print(f"Error loading image mapping {mapping_path}: {exc}")
+            continue
+
+        for _, row in df.iterrows():
+            variant_id = str(row.get("variant_id") or "")
+            if not variant_id:
+                continue
+
+            image_filename = row.get("image_filename")
+            if image_filename and not pd.isna(image_filename):
+                local_path = DATA_DIR / "raw" / "mapped_images" / str(image_filename)
+                if local_path.exists():
+                    mapping[variant_id] = str(local_path)
+                    continue
+
+            image_path = row.get("image_path")
+            if image_path and not pd.isna(image_path):
+                mapping[variant_id] = str(image_path)
+
+        if mapping:
+            print(f"Loaded {len(mapping)} local image mappings from {mapping_path}")
+            break
+
+    return mapping
 
 PRODUCT_DATA = load_product_data()
 
@@ -125,9 +169,7 @@ def get_product_image(variant_id: str) -> Optional[Image.Image]:
             # Local path: ensure it's an absolute path string or Path
             p = pathlib.Path(image_path)
             if not p.is_absolute():
-                # try to make absolute relative to project root
-                repo_root = pathlib.Path(__file__).resolve().parents[3]
-                p = repo_root / p
+                p = PROJECT_ROOT / p
             if p.exists():
                 return Image.open(p).convert("RGB")
             else:

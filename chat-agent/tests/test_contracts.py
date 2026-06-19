@@ -17,6 +17,55 @@ def test_catalog_contract_validates_required_product_fields() -> None:
     assert {"productId", "name", "slug", "category", "price", "inStock"} <= set(product)
 
 
+class ThinCatalogSummaryClient(MockBackendClient):
+    def catalog_search(self, query, filters=None, limit=4):
+        return [
+            {
+                "productId": "p-thin",
+                "name": "Thin Search Product",
+                "slug": "thin-search-product",
+                "category": "tops",
+                "price": 99,
+                "currency": "VND",
+                "inStock": True,
+                "stock": 0,
+                "colors": [],
+                "sizes": [],
+                "imageUrl": None,
+            }
+        ]
+
+    def catalog_detail(self, slug):
+        if slug != "thin-search-product":
+            return None
+        return {
+            "productId": "p-thin",
+            "name": "Thin Search Product",
+            "slug": "thin-search-product",
+            "category": "tops",
+            "price": 99,
+            "currency": "VND",
+            "imageUrl": "https://cdn.example.com/thin.jpg",
+            "colors": ["Black"],
+            "sizes": ["M", "L"],
+            "stock": 12,
+            "inStock": True,
+        }
+
+
+def test_catalog_search_enriches_thin_summary_cards_from_detail() -> None:
+    tool = CatalogTool(ThinCatalogSummaryClient())
+
+    result = tool.search("shirt")
+
+    assert result.status == "success"
+    product = result.data[0].model_dump(by_alias=True)
+    assert product["imageUrl"] == "https://cdn.example.com/thin.jpg"
+    assert product["colors"] == ["Black"]
+    assert product["sizes"] == ["M", "L"]
+    assert product["stock"] == 12
+
+
 def test_order_contract_validates_required_order_fields() -> None:
     tool = OrderTool(MockBackendClient())
     result = tool.lookup("ES123", user_id="user-1")

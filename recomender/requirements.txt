@@ -49,6 +49,7 @@ requests>=2.31.0
 
 #logging  # built-in, no need to install
 gradio==5.1.0
+huggingface-hub<1.0
 
 # Scheduler (NEW)
 schedule>=1.2.0
