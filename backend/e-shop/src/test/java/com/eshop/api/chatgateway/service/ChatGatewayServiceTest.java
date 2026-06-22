@@ -24,6 +24,8 @@ import com.eshop.api.chatgateway.repository.ChatNodeTraceRepository;
 import com.eshop.api.chatgateway.repository.ChatSessionRepository;
 import com.eshop.api.chatgateway.repository.ChatToolCallRepository;
 import com.eshop.api.chatgateway.util.ChatPayloadRedactor;
+import com.eshop.api.exception.ApiException;
+import com.eshop.api.exception.ChatAgentUnavailableException;
 import com.eshop.api.order.repository.OrderRepository;
 import com.eshop.api.support.dto.CreateSupportConversationRequest;
 import com.eshop.api.support.dto.SupportConversationSummaryResponse;
@@ -44,10 +46,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ChatGatewayServiceTest {
@@ -232,6 +238,128 @@ class ChatGatewayServiceTest {
         assertRedacted(savedMessages.getFirst().getPayloadJson());
     }
 
+    @Test
+    void sendMessagePersistsFallbackWhenAgentUnavailable() {
+        User user = user("customer@example.com");
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatSessionRepository.save(any(ChatSession.class))).thenAnswer(invocation -> {
+            ChatSession saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatAgentClient.chat(any(), any(), any(), any(), any(), any()))
+            .thenThrow(new ChatAgentUnavailableException("down"));
+
+        AgentChatResponse response = service.sendMessage(
+            new ChatMessageRequest(null, "hello", Map.of()),
+            () -> user.getEmail(),
+            null,
+            "trace-fallback",
+            "request-fallback",
+            null
+        );
+
+        assertThat(response.responseType()).isEqualTo("tool_error");
+        assertThat(response.fallbackCount()).isEqualTo(1);
+        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(chatMessageRepository, atLeast(2)).save(messageCaptor.capture());
+        ChatMessage assistantMessage = messageCaptor.getAllValues().stream()
+            .filter(message -> message.getRole() == ChatMessageRole.ASSISTANT)
+            .findFirst()
+            .orElseThrow();
+
+        assertThat(assistantMessage.getResponseType()).isEqualTo("tool_error");
+        assertThat(assistantMessage.getFallbackCount()).isEqualTo(1);
+        assertThat(assistantMessage.getPayloadJson().toString())
+            .contains("tool_error")
+            .contains("fallbackCount")
+            .contains("1");
+        assertThat(assistantMessage.getBody()).contains("temporarily unavailable");
+    }
+
+    @Test
+    void confirmActionMarksExpiredDraftExpired() {
+        User user = user("customer@example.com");
+        ChatDraftAction draft = ChatDraftAction.builder()
+            .id(UUID.randomUUID())
+            .user(user)
+            .status(ChatDraftActionStatus.PENDING)
+            .actionType("cart.add")
+            .payloadJson(objectMapper.createObjectNode())
+            .expiresAt(Instant.now().minusSeconds(10))
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatDraftActionRepository.findByIdAndUser_Id(draft.getId(), user.getId())).thenReturn(Optional.of(draft));
+
+        ApiException exception = catchThrowableOfType(
+            () -> service.confirmAction(draft.getId(), () -> user.getEmail()),
+            ApiException.class
+        );
+
+        assertThat(exception).hasMessageContaining("expired");
+        assertThat(exception.getStatusCode()).isEqualTo(410);
+        assertThat(draft.getStatus()).isEqualTo(ChatDraftActionStatus.EXPIRED);
+        verify(chatDraftActionRepository).save(draft);
+    }
+
+    @Test
+    void confirmActionFailsUnsupportedDraftWithoutCallingDomainServices() {
+        User user = user("customer@example.com");
+        ChatDraftAction draft = ChatDraftAction.builder()
+            .id(UUID.randomUUID())
+            .user(user)
+            .session(ChatSession.builder().id(UUID.randomUUID()).user(user).build())
+            .status(ChatDraftActionStatus.PENDING)
+            .actionType("payment.capture")
+            .payloadJson(objectMapper.createObjectNode())
+            .expiresAt(Instant.now().plusSeconds(60))
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatDraftActionRepository.findByIdAndUser_Id(draft.getId(), user.getId())).thenReturn(Optional.of(draft));
+
+        ApiException exception = catchThrowableOfType(
+            () -> service.confirmAction(draft.getId(), () -> user.getEmail()),
+            ApiException.class
+        );
+
+        assertThat(exception).hasMessageContaining("Unsupported draft action type");
+        assertThat(exception.getStatusCode()).isEqualTo(400);
+        assertThat(draft.getStatus()).isEqualTo(ChatDraftActionStatus.FAILED);
+        verifyNoInteractions(cartService, supportMessagingService);
+    }
+
+    @Test
+    void cancelActionRejectsNonPendingDraft() {
+        User user = user("customer@example.com");
+        ChatDraftAction draft = ChatDraftAction.builder()
+            .id(UUID.randomUUID())
+            .user(user)
+            .status(ChatDraftActionStatus.COMPLETED)
+            .actionType("cart.add")
+            .payloadJson(objectMapper.createObjectNode())
+            .expiresAt(Instant.now().plusSeconds(60))
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatDraftActionRepository.findByIdAndUser_Id(draft.getId(), user.getId())).thenReturn(Optional.of(draft));
+
+        ApiException exception = catchThrowableOfType(
+            () -> service.cancelAction(draft.getId(), () -> user.getEmail()),
+            ApiException.class
+        );
+
+        assertThat(exception).hasMessageContaining("not pending");
+        assertThat(exception.getStatusCode()).isEqualTo(409);
+        assertThat(draft.getStatus()).isEqualTo(ChatDraftActionStatus.COMPLETED);
+        verify(chatDraftActionRepository, never()).save(any(ChatDraftAction.class));
+        verifyNoInteractions(chatMessageRepository);
+    }
+
     private AgentChatResponse draftSupportHandoffResponse(UUID draftActionId) {
         return new AgentChatResponse(
             null,
@@ -264,6 +392,13 @@ class ChatGatewayServiceTest {
             20.0,
             0
         );
+    }
+
+    private User user(String email) {
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        return user;
     }
 
     private AgentChatResponse agentResponse() {
