@@ -1,12 +1,35 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
 import app.graph.nodes as graph_nodes
 from app.clients.base_client import BackendClientError
+os.environ["LANGSMITH_TRACING"] = "false"
+
 from app.main import chat, health
 from app.schemas import AgentChatRequest
+
+
+class AgentApiTestResponse:
+    def __init__(self, body: dict) -> None:
+        self.status_code = 200
+        self._body = body
+
+    def json(self) -> dict:
+        return self._body
+
+
+class AgentApiTestClient:
+    def post(self, path: str, json: dict) -> AgentApiTestResponse:
+        assert path == "/agent/chat"
+        response = chat(AgentChatRequest(**json))
+        return AgentApiTestResponse(response.model_dump(by_alias=True))
+
+
+client = AgentApiTestClient()
 
 
 def test_health() -> None:
@@ -341,3 +364,25 @@ def test_low_confidence_policy_retrieval_falls_back() -> None:
     assert body["responseType"] == "empty_result"
     assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
     assert body["fallbackCount"] == 1
+
+
+def test_recommendation_fallback_trace_includes_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    class TimeoutRecommendation:
+        def personalized(self, user_id=None, recent_product_ids=None):
+            return graph_nodes.ToolResult(status="timeout", data=[], summary="recommendation timeout")
+
+    monkeypatch.setattr(graph_nodes.tools, "recommendation", TimeoutRecommendation())
+
+    response = client.post(
+        "/agent/chat",
+        json={"sessionId": "fallback-reason-session", "message": "recommend timeout fallback"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["responseType"] == "recommendations"
+    fallback_tool = next(tool for tool in body["toolCalls"] if tool["toolName"] == "catalog.search")
+    assert fallback_tool["input"]["fallbackFor"] == "recommend.personalized"
+    assert fallback_tool["input"]["fallbackReason"] == "recommend.personalized returned timeout"
+    assert body["fallbackCount"] == 1
+    assert body["needsReview"] is True
