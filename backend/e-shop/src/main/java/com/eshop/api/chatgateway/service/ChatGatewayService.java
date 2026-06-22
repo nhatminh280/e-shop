@@ -33,6 +33,7 @@ import com.eshop.api.chatgateway.repository.ChatMessageRepository;
 import com.eshop.api.chatgateway.repository.ChatNodeTraceRepository;
 import com.eshop.api.chatgateway.repository.ChatSessionRepository;
 import com.eshop.api.chatgateway.repository.ChatToolCallRepository;
+import com.eshop.api.chatgateway.util.ChatPayloadRedactor;
 import com.eshop.api.exception.ApiException;
 import com.eshop.api.exception.ChatAgentUnavailableException;
 import com.eshop.api.exception.InvalidJwtException;
@@ -86,6 +87,7 @@ public class ChatGatewayService {
     private final ProductVariantRepository productVariantRepository;
     private final SupportMessagingService supportMessagingService;
     private final OrderRepository orderRepository;
+    private final ChatPayloadRedactor chatPayloadRedactor;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -113,7 +115,7 @@ public class ChatGatewayService {
             .role(ChatMessageRole.USER)
             .body(request.message())
             .traceId(traceId)
-            .payloadJson(objectMapper.valueToTree(request))
+            .payloadJson(redactedJson(request))
             .build());
 
         AgentChatResponse response;
@@ -161,14 +163,14 @@ public class ChatGatewayService {
             Map<String, Object> result = executeDraftAction(user, draft);
             draft.setStatus(ChatDraftActionStatus.COMPLETED);
             draft.setCompletedAt(now);
-            draft.setResultJson(objectMapper.valueToTree(result));
+            draft.setResultJson(redactedJson(result));
             chatDraftActionRepository.save(draft);
             persistActionEvent(draft, "Completed " + draft.getActionType(), result);
             return new ChatActionResultResponse(draft.getId(), "completed", draft.getActionType(), result);
         } catch (RuntimeException ex) {
             draft.setStatus(ChatDraftActionStatus.FAILED);
-            draft.setErrorMessage(ex.getMessage());
-            draft.setResultJson(objectMapper.valueToTree(Map.of("error", safeMessage(ex))));
+            draft.setErrorMessage(redactedText(ex.getMessage()));
+            draft.setResultJson(redactedJson(Map.of("error", safeMessage(ex))));
             chatDraftActionRepository.save(draft);
             throw ex;
         }
@@ -333,7 +335,7 @@ public class ChatGatewayService {
             .traceId(response.traceId())
             .latencyMs(toBigDecimal(response.latencyMs()))
             .fallbackCount(response.fallbackCount() != null ? response.fallbackCount() : 0)
-            .payloadJson(objectMapper.valueToTree(response))
+            .payloadJson(redactedJson(response))
             .build());
     }
 
@@ -348,10 +350,10 @@ public class ChatGatewayService {
                 .toolName(toolCall.toolName())
                 .status(firstText(toolCall.status(), "unknown"))
                 .latencyMs(toBigDecimal(toolCall.latencyMs()))
-                .requestSummary(toolCall.requestSummary())
-                .responseSummary(firstText(toolCall.responseSummary(), toolCall.outputSummary()))
-                .inputJson(toolCall.input() != null ? objectMapper.valueToTree(toolCall.input()) : null)
-                .errorMessage(firstText(toolCall.errorMessage(), toolCall.error()))
+                .requestSummary(redactedText(toolCall.requestSummary()))
+                .responseSummary(redactedText(firstText(toolCall.responseSummary(), toolCall.outputSummary())))
+                .inputJson(toolCall.input() != null ? redactedJson(toolCall.input()) : null)
+                .errorMessage(redactedText(firstText(toolCall.errorMessage(), toolCall.error())))
                 .build())
             .forEach(chatToolCallRepository::save);
     }
@@ -370,9 +372,9 @@ public class ChatGatewayService {
                 .latencyMs(toBigDecimal(nodeTrace.latencyMs()))
                 .intentConfidence(toBigDecimal(nodeTrace.intentConfidence()))
                 .routingConfidence(toBigDecimal(nodeTrace.routingConfidence()))
-                .inputSummary(nodeTrace.inputSummary())
-                .outputSummary(nodeTrace.outputSummary())
-                .errorMessage(nodeTrace.errorMessage())
+                .inputSummary(redactedText(nodeTrace.inputSummary()))
+                .outputSummary(redactedText(nodeTrace.outputSummary()))
+                .errorMessage(redactedText(nodeTrace.errorMessage()))
                 .build())
             .forEach(chatNodeTraceRepository::save);
     }
@@ -385,6 +387,8 @@ public class ChatGatewayService {
         if (id == null) {
             id = UUID.randomUUID();
         }
+        // This payload is executable domain input for delayed confirmation. Do not redact it
+        // without adding separate storage for executable payloads and display/audit payloads.
         JsonNode payload = draftAction.payload() != null
             ? objectMapper.valueToTree(draftAction.payload())
             : JsonNodeFactory.instance.objectNode();
@@ -486,7 +490,7 @@ public class ChatGatewayService {
             .role(ChatMessageRole.ASSISTANT)
             .body(body)
             .responseType("action_result")
-            .payloadJson(objectMapper.valueToTree(result))
+            .payloadJson(redactedJson(result))
             .build());
     }
 
@@ -615,6 +619,21 @@ public class ChatGatewayService {
 
     private String safeMessage(RuntimeException ex) {
         return StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : ex.getClass().getSimpleName();
+    }
+
+    private JsonNode redactedJson(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return redactedJson(objectMapper.valueToTree(value));
+    }
+
+    private JsonNode redactedJson(JsonNode value) {
+        return chatPayloadRedactor.redact(value);
+    }
+
+    private String redactedText(String value) {
+        return chatPayloadRedactor.redactText(value);
     }
 
     @SuppressWarnings("unused")
