@@ -48,6 +48,7 @@ class ChatAgentClientTest {
             .andExpect(header("x-trace-id", "trace-1"))
             .andExpect(header("x-request-id", "request-1"))
             .andExpect(header("traceparent", "00-abc"))
+            .andExpect(header("x-session-id", "session-1"))
             .andExpect(jsonPath("$.message").value("find jacket"))
             .andExpect(jsonPath("$.sessionId").value("session-1"))
             .andRespond(withSuccess("""

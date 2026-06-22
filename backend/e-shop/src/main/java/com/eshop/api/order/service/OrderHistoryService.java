@@ -66,6 +66,16 @@ public class OrderHistoryService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<OrderSummaryResponse> findOrderByNumber(String email, String orderNumber) {
+        User user = resolveUser(email);
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return Optional.empty();
+        }
+        return orderRepository.findByOrderNumberAndUser_Id(orderNumber.trim(), user.getId())
+            .map(this::toSummaryResponse);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<PurchasedItemLookupResponse> findLatestPurchasedItem(String email, UUID productId) {
         User user = resolveUser(email);
         Optional<OrderItem> optionalOrderItem = orderItemRepository.findLatestPurchasedItemByUserAndProduct(

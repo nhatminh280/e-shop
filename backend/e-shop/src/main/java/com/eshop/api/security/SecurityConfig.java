@@ -44,6 +44,7 @@ public class SecurityConfig {
                 "/api/auth/password/reset/**",
                 "/api/auth/activate/**",
                 "/api/catalog/**",
+                "/api/recommendations/**",
                 "/swagger-ui/**",
                 "/v3/api-docs/**",
                 "/ws/**").permitAll().requestMatchers("/actuator/**").permitAll().requestMatchers("/api/admin/**").hasAnyRole(
