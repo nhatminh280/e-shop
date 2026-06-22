@@ -6,7 +6,7 @@ This file tracks the current implementation progress for Phase 5 work from `docs
 
 ## Current Status
 
-Phase 5 is in progress. The local mock-agent now has policy/FAQ/product knowledge retrieval, grounded eval checks, a local hybrid knowledge index, recommendation metadata/fallback behavior, and evaluation checks for recommendation fallback tool chains.
+Phase 5 is complete for the repo-owned local scope. The local mock-agent has policy/FAQ/product knowledge retrieval, grounded eval checks, a local hybrid knowledge index, recommendation metadata/fallback behavior, personalized recommendation routing, Spring personalized recommendation adapter coverage, and evaluation checks for recommendation fallback tool chains.
 
 Latest verified state:
 
@@ -234,22 +234,14 @@ Done.
 - Product knowledge text includes overview, material/care guidance, and best-use context derived from catalog fields.
 - Added product knowledge API and evaluation coverage for the Patagonia Torrentshell jacket material/care query.
 
-## Pending
+## External Production Dependencies
 
-### Future RAG Work
+These items are intentionally not claimed as complete in the local Phase 5 scope because they require production infrastructure or service ownership outside the chat-agent code:
 
-Not started.
-
-- Add real vector database adapter or Spring vector endpoint integration.
-- Add ingestion script for persisted product/policy/FAQ embeddings.
-- Add citation metadata in a structured response field if the frontend/backend needs it beyond tool traces.
-
-### Future Recommendation Work
-
-Not started.
-
-- Integrate real recommender service endpoint.
-- Add fallback reason metadata in response/tool summary.
+- Add a real vector database adapter or Spring vector endpoint integration.
+- Add persisted embedding ingestion for product, policy, and FAQ records.
+- Integrate a real ML recommender service endpoint beyond graceful adapter fallback.
+- Add structured citation fields in API responses if the frontend/backend needs them outside tool traces.
 
 ## Important Notes
 

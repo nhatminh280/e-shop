@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.clients import MockBackendClient
+from app.clients.mock_backend_client import MockBackendClient
 from app.schemas import KnowledgeSearchResult
 from app.tools.knowledge_tool import KnowledgeTool, _is_confident_match
 
@@ -108,6 +108,17 @@ def test_vector_knowledge_payload_passes_confidence_threshold() -> None:
     assert result.data[0]["scoreType"] == "vector"
     assert "sourceIds=shipping" in result.summary
     assert "scoreTypes=vector" in result.summary
+
+
+def test_knowledge_tool_summary_includes_source_metadata() -> None:
+    tool = KnowledgeTool(VectorKnowledgeClient())
+
+    result = tool.retrieve("shipping policy")
+
+    assert result.status == "success"
+    assert "sourceIds=shipping" in result.summary
+    assert "scores=" in result.summary
+    assert "scoreTypes=" in result.summary
 
 
 def test_invalid_knowledge_payload_returns_validation_error() -> None:
