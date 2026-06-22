@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +29,20 @@ public class RecommendationAliasController {
             throw new InvalidRecommendationRequestException("Parameter 'variantId' is required");
         }
         ProductRecommendationResponse response = productRecommendationService.getRecommendations(variantId, limit);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/personalized")
+    public ResponseEntity<ProductRecommendationResponse> recommendPersonalizedProducts(
+        @RequestParam(value = "userId", required = false) String userId,
+        @RequestParam(value = "limit", required = false) Integer limit
+    ) {
+        ProductRecommendationResponse response = ProductRecommendationResponse.builder()
+            .recommendations(List.of())
+            .responseTimeMs(0.0)
+            .fromCache(false)
+            .totalResults(0)
+            .build();
         return ResponseEntity.ok(response);
     }
 }

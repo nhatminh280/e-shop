@@ -126,6 +126,40 @@ def test_spring_client_unauthorized_does_not_open_circuit(monkeypatch: pytest.Mo
     assert calls == 2
 
 
+def test_spring_client_retries_transient_http_status_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = [
+        httpx.Response(503, json={"error": "unavailable"}, request=httpx.Request("GET", "http://backend")),
+        httpx.Response(
+            200,
+            json={"products": [{"id": "p001", "name": "Trail Shirt", "slug": "trail-shirt"}]},
+            request=httpx.Request("GET", "http://backend"),
+        ),
+    ]
+    calls: list[str] = []
+
+    class RecoveringStatusClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            calls.append(url)
+            return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "Client", RecoveringStatusClient)
+    client = SpringBackendClient(base_url="http://backend", retries=1)
+
+    [product] = client.catalog_search("shirt")
+
+    assert len(calls) == 2
+    assert product["productId"] == "p001"
+
+
 def test_spring_similar_recommendations_send_recent_product_ids_as_repeated_params(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_params: dict[str, Any] | None = None
 
@@ -174,6 +208,174 @@ def test_spring_client_returns_empty_similar_recommendations_when_backend_unavai
     client = SpringBackendClient(base_url="http://backend", retries=0)
 
     assert client.recommend_similar(variant_id="v001") == []
+
+
+def test_spring_client_uses_personalized_recommendation_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_url = ""
+    captured_params: dict[str, Any] | None = None
+
+    class CapturingClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            nonlocal captured_url, captured_params
+            captured_url = url
+            captured_params = params
+            return httpx.Response(
+                200,
+                json={
+                    "recommendations": [
+                        {
+                            "productId": "p009",
+                            "variantId": "v009",
+                            "productName": "Trail Shirt",
+                            "productSlug": "trail-shirt",
+                            "category": "shirts",
+                            "gender": "unisex",
+                            "price": 250000,
+                            "inStock": True,
+                            "stock": 8,
+                            "recommendationRank": 1,
+                            "recommendationScore": 0.91,
+                            "recommendationReason": "personalized by recent views",
+                        }
+                    ]
+                },
+                request=httpx.Request(method, url),
+            )
+
+    monkeypatch.setattr(httpx, "Client", CapturingClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    [product] = client.recommend_personalized(user_id="user-1", recent_product_ids=["p001", "p002"], limit=3)
+
+    assert captured_url == "http://backend/api/recommendations/personalized"
+    assert captured_params == {"userId": "user-1", "recentProductIds": ["p001", "p002"], "limit": 3}
+    assert product["productId"] == "p009"
+    assert product["recommendationScore"] == 0.91
+    assert product["recommendationReason"] == "personalized by recent views"
+
+
+def test_spring_client_returns_empty_personalized_recommendations_when_backend_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            return httpx.Response(501, json={"error": "not implemented"}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", UnavailableClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    assert client.recommend_personalized(user_id="user-1", recent_product_ids=["p001"], limit=4) == []
+
+
+def test_spring_client_personalized_placeholder_statuses_do_not_open_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        httpx.Response(501, json={"error": "not implemented"}, request=httpx.Request("GET", "http://backend")),
+        httpx.Response(404, json={"error": "not found"}, request=httpx.Request("GET", "http://backend")),
+        httpx.Response(
+            200,
+            json={"products": [{"id": "p002", "name": "Rain Jacket", "slug": "rain-jacket"}]},
+            request=httpx.Request("GET", "http://backend"),
+        ),
+    ]
+    calls: list[str] = []
+
+    class PlaceholderThenCatalogClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            calls.append(url)
+            return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "Client", PlaceholderThenCatalogClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0, circuit_failure_threshold=1)
+
+    assert client.recommend_personalized(user_id="user-1", recent_product_ids=["p001"], limit=4) == []
+    assert client.recommend_personalized(user_id="user-1", recent_product_ids=["p001"], limit=4) == []
+    [product] = client.catalog_search("jacket")
+
+    assert calls == [
+        "http://backend/api/recommendations/personalized",
+        "http://backend/api/recommendations/personalized",
+        "http://backend/api/catalog/products/search",
+    ]
+    assert product["productId"] == "p002"
+
+
+def test_spring_client_propagates_unauthorized_personalized_recommendations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnauthorizedClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            return httpx.Response(401, json={"error": "unauthorized"}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", UnauthorizedClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    with pytest.raises(BackendClientError) as exc_info:
+        client.recommend_personalized(user_id="user-1", recent_product_ids=["p001"], limit=4)
+
+    assert exc_info.value.status == "unauthorized"
+
+
+def test_spring_client_propagates_timeout_personalized_recommendations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimeoutClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            raise httpx.TimeoutException("backend timed out", request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", TimeoutClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    with pytest.raises(BackendClientError) as exc_info:
+        client.recommend_personalized(user_id="user-1", recent_product_ids=["p001"], limit=4)
+
+    assert exc_info.value.status == "timeout"
 
 
 def test_spring_client_uses_backend_order_lookup_by_number(monkeypatch: pytest.MonkeyPatch) -> None:

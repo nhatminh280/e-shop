@@ -38,6 +38,19 @@ class SpringBackendClient(BackendClient):
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self._request("GET", path, params=params)
 
+    def _get_optional_feature(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        fallback_status_codes: set[int] | None = None,
+    ) -> Any | None:
+        return self._request(
+            "GET",
+            path,
+            params=params,
+            fallback_status_codes=fallback_status_codes or {404, 501},
+        )
+
     def _post(self, path: str, payload: dict[str, Any] | None = None) -> Any:
         return self._request("POST", path, json=payload or {})
 
@@ -48,6 +61,7 @@ class SpringBackendClient(BackendClient):
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        fallback_status_codes: set[int] | None = None,
     ) -> Any:
         self._raise_if_circuit_open()
         headers = {"x-agent-client": "chat-agent", **get_trace_headers()}
@@ -55,6 +69,7 @@ class SpringBackendClient(BackendClient):
             headers["Authorization"] = f"Bearer {self.auth_token}"
 
         last_error: Exception | None = None
+        last_status_code: int | None = None
         for _ in range(self.retries + 1):
             try:
                 with httpx.Client(timeout=self.timeout_seconds) as client:
@@ -62,7 +77,14 @@ class SpringBackendClient(BackendClient):
                 if response.status_code in (401, 403):
                     self._record_circuit_success()
                     raise BackendClientError("backend request unauthorized", status="unauthorized")
-                response.raise_for_status()
+                if fallback_status_codes and response.status_code in fallback_status_codes:
+                    return None
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    last_status_code = response.status_code
+                    continue
                 self._record_circuit_success()
                 return response.json()
             except httpx.TimeoutException as exc:
@@ -74,7 +96,7 @@ class SpringBackendClient(BackendClient):
 
         status = "timeout" if isinstance(last_error, httpx.TimeoutException) else "backend_error"
         self._record_circuit_failure()
-        raise BackendClientError(str(last_error or "backend request failed"), status=status)
+        raise BackendClientError(str(last_error or "backend request failed"), status=status, status_code=last_status_code)
 
     def _raise_if_circuit_open(self) -> None:
         with self._circuit_lock:
@@ -135,7 +157,18 @@ class SpringBackendClient(BackendClient):
         recent_product_ids: list[str] | None = None,
         limit: int = 4,
     ) -> list[dict[str, Any]]:
-        return []
+        params = {
+            "userId": user_id,
+            "recentProductIds": recent_product_ids or [],
+            "limit": limit,
+        }
+        payload = self._get_optional_feature(
+            "/api/recommendations/personalized",
+            {key: value for key, value in params.items() if value},
+        )
+        if payload is None:
+            return []
+        return [_normalize_product(product) for product in _extract_list(payload, "products")]
 
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         payload = self._get("/api/cart")

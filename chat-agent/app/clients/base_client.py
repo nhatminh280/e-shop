@@ -5,9 +5,10 @@ from typing import Any
 
 
 class BackendClientError(Exception):
-    def __init__(self, message: str, status: str = "backend_error") -> None:
+    def __init__(self, message: str, status: str = "backend_error", status_code: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.status_code = status_code
 
 
 class BackendClient(ABC):
