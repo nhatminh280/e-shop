@@ -441,7 +441,7 @@ class ChatGatewayServiceTest {
     }
 
     @Test
-    void getReviewMessagesUsesBulkToolStatusResultForUppercaseStatuses() {
+    void getReviewMessagesUsesBulkToolStatusResultForReviewReasons() {
         User user = user("staff2@example.com");
         user.getRoles().add(role("STAFF"));
         UUID sessionId = UUID.randomUUID();
