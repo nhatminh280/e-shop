@@ -17,6 +17,7 @@ import com.eshop.api.chatgateway.model.ChatDraftAction;
 import com.eshop.api.chatgateway.model.ChatMessage;
 import com.eshop.api.chatgateway.model.ChatNodeTrace;
 import com.eshop.api.chatgateway.model.ChatSession;
+import com.eshop.api.chatgateway.model.ChatToolCall;
 import com.eshop.api.chatgateway.repository.ChatDraftActionRepository;
 import com.eshop.api.chatgateway.repository.ChatMessageRepository;
 import com.eshop.api.chatgateway.repository.ChatNodeTraceRepository;
