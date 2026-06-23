@@ -1,0 +1,32 @@
+services:
+  chat-agent:
+    build:
+      context: ./chat-agent
+    environment:
+      MOCK_BACKEND: "false"
+      BACKEND_BASE_URL: http://api:8080
+      BACKEND_TIMEOUT_SECONDS: 3
+      BACKEND_RETRIES: 1
+      BACKEND_CIRCUIT_FAILURE_THRESHOLD: 3
+      BACKEND_CIRCUIT_COOLDOWN_SECONDS: 10
+      CHAT_AGENT_JSON_LOGS: "true"
+      CHAT_AGENT_LOG_LEVEL: INFO
+    ports:
+      - "${CHAT_AGENT_PORT:-8010}:8010"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  chat-agent-gradio:
+    build:
+      context: ./chat-agent
+    command: python gradio_tester.py
+    environment:
+      AGENT_BASE_URL: http://chat-agent:8010
+      GRADIO_AGENT_TIMEOUT_SECONDS: 20
+      GRADIO_PORT: 7861
+    ports:
+      - "${CHAT_AGENT_GRADIO_PORT:-7861}:7861"
+    depends_on:
+      - chat-agent
+    restart: unless-stopped
