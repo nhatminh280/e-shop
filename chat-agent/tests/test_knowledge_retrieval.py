@@ -89,6 +89,17 @@ def test_mock_knowledge_results_include_keyword_retrieval_metadata() -> None:
     assert "shipping" in result.data[0]["matchedTokens"]
 
 
+def test_mock_knowledge_can_use_local_vector_mode(monkeypatch) -> None:
+    monkeypatch.setenv("KNOWLEDGE_RETRIEVAL_MODE", "vector")
+
+    result = KnowledgeTool(MockBackendClient()).retrieve("shipping fees standard domestic")
+
+    assert result.status == "success"
+    assert result.data[0]["sourceId"] == "shipping"
+    assert result.data[0]["scoreType"] == "vector"
+    assert result.data[0]["score"] >= 0.7
+
+
 def test_mock_knowledge_retrieves_product_material_and_care_knowledge() -> None:
     result = KnowledgeTool(MockBackendClient()).retrieve("torrentshell jacket waterproof care")
 

@@ -15,6 +15,7 @@ from app.graph.nodes import (
     load_session_context,
     normalize_message,
     output_guardrails,
+    refine_grounded_answer_with_llm,
     route_intent,
 )
 from app.graph.state import GraphState
@@ -41,6 +42,7 @@ def build_graph():
     builder.add_node("route_intent", trace_node("route_intent", route_intent))
     builder.add_node("build_clarification_response", trace_node("build_clarification_response", build_clarification_response))
     builder.add_node("ground_response_in_tool_results", trace_node("ground_response_in_tool_results", ground_response_in_tool_results))
+    builder.add_node("refine_grounded_answer_with_llm", trace_node("refine_grounded_answer_with_llm", refine_grounded_answer_with_llm))
     builder.add_node("output_guardrails", trace_node("output_guardrails", output_guardrails))
     builder.add_node("format_structured_response", trace_node("format_structured_response", format_structured_response))
 
@@ -59,7 +61,8 @@ def build_graph():
         },
     )
     builder.add_edge("build_clarification_response", "output_guardrails")
-    builder.add_edge("ground_response_in_tool_results", "output_guardrails")
+    builder.add_edge("ground_response_in_tool_results", "refine_grounded_answer_with_llm")
+    builder.add_edge("refine_grounded_answer_with_llm", "output_guardrails")
     builder.add_edge("output_guardrails", "format_structured_response")
     builder.add_edge("format_structured_response", END)
     return builder.compile()
@@ -103,6 +106,8 @@ def run_agent(request: AgentChatRequest) -> AgentChatResponse:
                     "product_cards": [],
                     "last_selected_product": None,
                     "last_selected_order": None,
+                    "grounding_documents": [],
+                    "grounding_order": None,
                     "draft_action": None,
                     "needs_confirmation": False,
                     "node_trace": [],

@@ -3,14 +3,17 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
+from functools import cached_property
 from threading import Lock
 from typing import Any
 
 import httpx
 
+from app.knowledge import LocalHybridKnowledgeIndex, LocalVectorKnowledgeIndex, load_all_knowledge_records
 from app.services.trace_context_service import get_trace_headers
 
 from .base_client import BackendClient, BackendClientError
+from .mock_backend_client import MockBackendClient
 
 
 class SpringBackendClient(BackendClient):
@@ -189,8 +192,17 @@ class SpringBackendClient(BackendClient):
         return payload if isinstance(payload, dict) else None
 
     def knowledge_retrieve(self, query: str, limit: int = 2) -> list[dict[str, Any]]:
-        payload = self._get("/api/knowledge/search", {"q": query, "limit": limit})
-        return _extract_list(payload, "documents")
+        try:
+            payload = self._get_optional_feature("/api/knowledge/search", {"q": query, "limit": limit}, {404, 501})
+        except BackendClientError:
+            payload = None
+        if payload is not None:
+            documents = _extract_list(payload, "documents")
+            if documents:
+                return documents
+        if os.getenv("KNOWLEDGE_LOCAL_FALLBACK", "true").lower() in {"1", "true", "yes"}:
+            return self._local_knowledge_retrieve(query=query, limit=limit)
+        return []
 
     def support_create(self, payload: dict[str, Any]) -> dict[str, Any]:
         response = self._post("/api/support/conversations", _support_payload(payload))
@@ -203,6 +215,23 @@ class SpringBackendClient(BackendClient):
     def cancel_draft_action(self, draft_action_id: str) -> dict[str, Any]:
         response = self._post(f"/api/chat/actions/{draft_action_id}/cancel")
         return response if isinstance(response, dict) else {}
+
+    @cached_property
+    def _local_mock_client(self) -> MockBackendClient:
+        return MockBackendClient()
+
+    @cached_property
+    def _local_hybrid_knowledge_index(self) -> LocalHybridKnowledgeIndex:
+        return LocalHybridKnowledgeIndex.from_records(load_all_knowledge_records(self._local_mock_client.data["products"]))
+
+    @cached_property
+    def _local_vector_knowledge_index(self) -> LocalVectorKnowledgeIndex:
+        return LocalVectorKnowledgeIndex.from_records(load_all_knowledge_records(self._local_mock_client.data["products"]))
+
+    def _local_knowledge_retrieve(self, query: str, limit: int) -> list[dict[str, Any]]:
+        if os.getenv("KNOWLEDGE_RETRIEVAL_MODE", "hybrid").lower() == "vector":
+            return self._local_vector_knowledge_index.retrieve(query, limit=limit)
+        return self._local_hybrid_knowledge_index.retrieve(query, limit=limit)
 
 
 def _extract_list(payload: Any, preferred_key: str) -> list[dict[str, Any]]:
@@ -225,6 +254,9 @@ def _normalize_product(product: dict[str, Any]) -> dict[str, Any]:
     normalized["name"] = product.get("name") or product.get("productName") or ""
     normalized["slug"] = product.get("slug") or product.get("productSlug") or ""
     normalized["category"] = _category_value(product.get("category"))
+    if normalized["category"] == "uncategorized" and product.get("categoryName"):
+        normalized["category"] = str(product["categoryName"])
+    normalized["gender"] = product.get("gender") or product.get("targetGender") or "unisex"
     normalized["price"] = product.get("price") or product.get("basePrice") or (first_variant or {}).get("price") or 0
     normalized["currency"] = product.get("currency") or (first_variant or {}).get("currency") or "VND"
     normalized["imageUrl"] = product.get("imageUrl") or _image_url(product)
@@ -232,8 +264,13 @@ def _normalize_product(product: dict[str, Any]) -> dict[str, Any]:
     normalized["sizes"] = product.get("sizes") if isinstance(product.get("sizes"), list) else _variant_values(variants, "size")
     normalized["stock"] = product.get("stock") if product.get("stock") is not None else _stock(variants)
     normalized["inStock"] = product.get("inStock") if product.get("inStock") is not None else _in_stock(product, variants)
+    if product.get("similarityScore") is not None and not variants and product.get("stock") is None:
+        normalized["stock"] = 1
+        normalized["inStock"] = True
     if product.get("similarityScore") is not None and normalized.get("recommendationScore") is None:
         normalized["recommendationScore"] = product["similarityScore"]
+    if normalized.get("recommendationReason") is None and product.get("similarityScore") is not None:
+        normalized["recommendationReason"] = "similar product from recommender"
     return normalized
 
 

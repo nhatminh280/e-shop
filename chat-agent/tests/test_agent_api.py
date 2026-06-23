@@ -386,6 +386,27 @@ def test_policy_answer_tool_trace_includes_source_metadata() -> None:
     assert "sourceIds=shipping" in body["toolCalls"][0]["responseSummary"]
 
 
+def test_llm_refinement_can_rewrite_grounded_read_only_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeLlmResult:
+        answer = "LLM grounded answer from shipping source."
+        used = True
+        error = None
+
+    def fake_generate_grounded_answer(**kwargs):
+        assert kwargs["response_type"] == "answer"
+        assert kwargs["grounding_documents"][0]["sourceId"] == "shipping"
+        return FakeLlmResult()
+
+    monkeypatch.setattr(graph_nodes, "generate_grounded_answer", fake_generate_grounded_answer)
+
+    response = chat(AgentChatRequest(sessionId="llm-refine", message="shipping fees standard domestic"))
+    body = response.model_dump(by_alias=True)
+
+    assert body["intent"] == "policy_or_faq"
+    assert body["answer"] == "LLM grounded answer from shipping source."
+    assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
+
+
 def test_product_knowledge_question_uses_rag_source() -> None:
     response = chat(
         AgentChatRequest(

@@ -6,12 +6,13 @@ from .ingestion import (
     load_policy_faq_records,
 )
 from .loader import KnowledgeDocumentError, load_knowledge_documents
-from .vector_index import LocalHybridKnowledgeIndex
+from .vector_index import LocalHybridKnowledgeIndex, LocalVectorKnowledgeIndex
 
 __all__ = [
     "KnowledgeDocumentError",
     "KnowledgeIngestionRecord",
     "LocalHybridKnowledgeIndex",
+    "LocalVectorKnowledgeIndex",
     "build_product_knowledge_records",
     "build_policy_faq_records",
     "load_all_knowledge_records",

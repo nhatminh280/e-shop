@@ -32,4 +32,6 @@ class GraphState(TypedDict):
     last_assistant_response: NotRequired[str | None]
     last_selected_product: NotRequired[ProductCard | None]
     last_selected_order: NotRequired[dict[str, Any] | None]
+    grounding_documents: NotRequired[list[dict[str, Any]]]
+    grounding_order: NotRequired[dict[str, Any] | None]
     fallback_count: NotRequired[int]

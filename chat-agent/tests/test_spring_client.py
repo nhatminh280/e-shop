@@ -495,4 +495,59 @@ def test_spring_client_normalizes_backend_catalog_and_recommendation_payloads(mo
     assert catalog_product["category"] == "jackets"
     assert recommendation["name"] == "White Hoodie"
     assert recommendation["slug"] == "white-hoodie"
+    assert recommendation["category"] == "uncategorized"
+    assert recommendation["gender"] == "unisex"
+    assert recommendation["inStock"] is True
+    assert recommendation["stock"] == 1
     assert recommendation["recommendationScore"] == 0.87
+    assert recommendation["recommendationReason"] == "similar product from recommender"
+
+
+def test_spring_client_falls_back_to_local_knowledge_when_backend_search_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingKnowledgeClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            return httpx.Response(404, json={"error": "not found"}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", MissingKnowledgeClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    documents = client.knowledge_retrieve("shipping fees standard domestic")
+
+    assert documents
+    assert documents[0]["sourceId"] == "shipping"
+
+
+def test_spring_client_falls_back_to_local_knowledge_when_backend_search_is_unauthorized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnauthorizedKnowledgeClient:
+        def __init__(self, timeout):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def request(self, method, url, params=None, json=None, headers=None):
+            return httpx.Response(401, json={"error": "unauthorized"}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "Client", UnauthorizedKnowledgeClient)
+    client = SpringBackendClient(base_url="http://backend", retries=0)
+
+    documents = client.knowledge_retrieve("shipping fees standard domestic")
+
+    assert documents
+    assert documents[0]["sourceId"] == "shipping"

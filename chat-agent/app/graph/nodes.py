@@ -5,6 +5,7 @@ from typing import Any
 from app.graph.state import GraphState
 from app.schemas import DraftAction, ProductCard
 from app.services import memory_service
+from app.services.llm_service import generate_grounded_answer
 from app.services.trace_service import call_tool
 from app.tools import ToolRegistry
 from app.tools.base import ToolResult
@@ -189,6 +190,28 @@ def output_guardrails(state: GraphState) -> dict[str, Any]:
     }
 
 
+def refine_grounded_answer_with_llm(state: GraphState) -> dict[str, Any]:
+    response_type = state.get("response_type", "answer")
+    if response_type not in {"answer", "product_results", "recommendations", "order_status"}:
+        return {"node_trace": append_node(state, "refine_grounded_answer_with_llm")}
+    result = generate_grounded_answer(
+        message=state.get("message", ""),
+        intent=state.get("intent", "general"),
+        response_type=response_type,
+        current_answer=state.get("answer", ""),
+        product_cards=state.get("product_cards", []),
+        grounding_documents=state.get("grounding_documents", []),
+        order=state.get("grounding_order"),
+        tool_summaries=[tool.response_summary for tool in state.get("tool_calls", [])],
+    )
+    updates: dict[str, Any] = {"node_trace": append_node(state, "refine_grounded_answer_with_llm")}
+    if result.used:
+        updates["answer"] = result.answer
+    elif result.error:
+        updates["needs_review"] = True
+    return updates
+
+
 def format_structured_response(state: GraphState) -> dict[str, Any]:
     answer = state.get("answer") or "I could not complete that request."
     response_type = state.get("response_type") or "fallback"
@@ -278,8 +301,8 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     fallback_result, tool_calls = call_tool(
         tool_calls,
         "catalog.search",
-        {"query": "", "filters": {"in_stock": True}, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
-        lambda: tools.catalog.search(query="", filters={"in_stock": True}),
+        {"query": "jacket", "filters": {"in_stock": True}, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
+        lambda: tools.catalog.search(query="jacket", filters={"in_stock": True}),
         trace_id=state.get("trace_id"),
         session_id=state.get("session_id"),
         user_id=state.get("user_id"),
@@ -434,6 +457,7 @@ def _handle_order_status(state: GraphState) -> dict[str, Any]:
         "answer": answer,
         "response_type": "order_status",
         "last_selected_order": order,
+        "grounding_order": order,
         "tool_calls": tool_calls,
         "node_trace": append_node(state, "ground_response_in_tool_results"),
     }
@@ -477,6 +501,7 @@ def _handle_policy_or_faq(state: GraphState) -> dict[str, Any]:
     return {
         "answer": result.data[0]["body"],
         "response_type": "answer",
+        "grounding_documents": result.data,
         "tool_calls": tool_calls,
         "node_trace": append_node(state, "ground_response_in_tool_results"),
     }
