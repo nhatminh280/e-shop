@@ -17,7 +17,6 @@ import com.eshop.api.chatgateway.model.ChatDraftAction;
 import com.eshop.api.chatgateway.model.ChatMessage;
 import com.eshop.api.chatgateway.model.ChatNodeTrace;
 import com.eshop.api.chatgateway.model.ChatSession;
-import com.eshop.api.chatgateway.model.ChatToolCall;
 import com.eshop.api.chatgateway.repository.ChatDraftActionRepository;
 import com.eshop.api.chatgateway.repository.ChatMessageRepository;
 import com.eshop.api.chatgateway.repository.ChatNodeTraceRepository;
@@ -381,21 +380,11 @@ class ChatGatewayServiceTest {
             .fallbackCount(1)
             .createdAt(Instant.parse("2026-06-22T10:15:30Z"))
             .build();
-        ChatToolCall toolCall = ChatToolCall.builder()
-            .id(UUID.randomUUID())
-            .message(message)
-            .session(message.getSession())
-            .toolName("catalog.search")
-            .status("timeout")
-            .build();
-
         when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
         when(chatMessageRepository.findReviewCandidates(PageRequest.of(0, 25)))
             .thenReturn(new PageImpl<>(List.of(message)));
-        when(chatToolCallRepository.findByMessage_IdAndStatusIn(
-            messageId,
-            List.of("timeout", "backend_error", "validation_error")
-        )).thenReturn(List.of(toolCall));
+        when(chatToolCallRepository.findMessageIdsWithReviewableStatuses(List.of(messageId)))
+            .thenReturn(List.of(messageId));
 
         var page = service.getReviewMessages(0, 25, () -> user.getEmail());
 
@@ -438,21 +427,43 @@ class ChatGatewayServiceTest {
             .fallbackCount(0)
             .createdAt(Instant.parse("2026-06-22T11:15:30Z"))
             .build();
-        ChatToolCall toolCall = ChatToolCall.builder()
-            .id(UUID.randomUUID())
-            .message(message)
-            .session(message.getSession())
-            .toolName("catalog.search")
-            .status("timeout")
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatMessageRepository.findReviewCandidates(PageRequest.of(0, 25)))
+            .thenReturn(new PageImpl<>(List.of(message)));
+        when(chatToolCallRepository.findMessageIdsWithReviewableStatuses(List.of(messageId)))
+            .thenReturn(List.of(messageId));
+
+        var page = service.getReviewMessages(0, 25, () -> user.getEmail());
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().getFirst().reviewReasons())
+            .containsExactly("tool_status");
+    }
+
+    @Test
+    void getReviewMessagesUsesBulkToolStatusResultForUppercaseStatuses() {
+        User user = user("staff2@example.com");
+        user.getRoles().add(role("STAFF"));
+        UUID sessionId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        ChatMessage message = ChatMessage.builder()
+            .id(messageId)
+            .session(ChatSession.builder().id(sessionId).user(user).build())
+            .user(user)
+            .role(ChatMessageRole.ASSISTANT)
+            .body("Normal answer")
+            .intent("product_search")
+            .responseType("answer")
+            .traceId("trace-review-3")
+            .fallbackCount(0)
+            .createdAt(Instant.parse("2026-06-22T12:15:30Z"))
             .build();
 
         when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
         when(chatMessageRepository.findReviewCandidates(PageRequest.of(0, 25)))
             .thenReturn(new PageImpl<>(List.of(message)));
-        when(chatToolCallRepository.findByMessage_IdAndStatusIn(
-            messageId,
-            List.of("timeout", "backend_error", "validation_error")
-        )).thenReturn(List.of(toolCall));
+        when(chatToolCallRepository.findMessageIdsWithReviewableStatuses(List.of(messageId)))
+            .thenReturn(List.of(messageId));
 
         var page = service.getReviewMessages(0, 25, () -> user.getEmail());
 

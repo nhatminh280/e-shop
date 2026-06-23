@@ -64,6 +64,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -79,7 +80,6 @@ public class ChatGatewayService {
 
     private static final int DEFAULT_DRAFT_EXPIRY_MINUTES = 15;
     private static final Set<String> REVIEW_RESPONSE_TYPES = Set.of("tool_error", "fallback");
-    private static final List<String> REVIEW_TOOL_STATUSES = List.of("timeout", "backend_error", "validation_error");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -264,8 +264,14 @@ public class ChatGatewayService {
         requireReviewAccess(principal);
         int resolvedPage = Math.max(page, 0);
         int resolvedSize = Math.max(1, Math.min(size, 100));
-        return chatMessageRepository.findReviewCandidates(PageRequest.of(resolvedPage, resolvedSize))
-            .map(this::toReviewMessage);
+        Page<ChatMessage> messages = chatMessageRepository.findReviewCandidates(PageRequest.of(resolvedPage, resolvedSize));
+        List<UUID> messageIds = messages.getContent().stream()
+            .map(ChatMessage::getId)
+            .toList();
+        Set<UUID> reviewableToolStatusMessageIds = messageIds.isEmpty()
+            ? Set.of()
+            : new HashSet<>(chatToolCallRepository.findMessageIdsWithReviewableStatuses(messageIds));
+        return messages.map(message -> toReviewMessage(message, reviewableToolStatusMessageIds));
     }
 
     private ChatSession loadOrCreateSession(UUID requestedSessionId, User user) {
@@ -551,8 +557,8 @@ public class ChatGatewayService {
         );
     }
 
-    private ChatReviewMessageResponse toReviewMessage(ChatMessage message) {
-        List<String> reviewReasons = buildReviewReasons(message);
+    private ChatReviewMessageResponse toReviewMessage(ChatMessage message, Set<UUID> reviewableToolStatusMessageIds) {
+        List<String> reviewReasons = buildReviewReasons(message, reviewableToolStatusMessageIds);
         return new ChatReviewMessageResponse(
             message.getId(),
             message.getSession() != null ? message.getSession().getId() : null,
@@ -567,7 +573,7 @@ public class ChatGatewayService {
         );
     }
 
-    private List<String> buildReviewReasons(ChatMessage message) {
+    private List<String> buildReviewReasons(ChatMessage message, Set<UUID> reviewableToolStatusMessageIds) {
         Collection<String> reasons = new LinkedHashSet<>();
         if (message.getFallbackCount() != null && message.getFallbackCount() > 0) {
             reasons.add("fallback_count");
@@ -576,7 +582,7 @@ public class ChatGatewayService {
         if (REVIEW_RESPONSE_TYPES.contains(responseType)) {
             reasons.add("response_type");
         }
-        if (!chatToolCallRepository.findByMessage_IdAndStatusIn(message.getId(), REVIEW_TOOL_STATUSES).isEmpty()) {
+        if (reviewableToolStatusMessageIds.contains(message.getId())) {
             reasons.add("tool_status");
         }
         return new ArrayList<>(reasons);
