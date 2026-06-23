@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 import app.graph.nodes as graph_nodes
 from app.clients.base_client import BackendClientError
+from app.tools.catalog_tool import CatalogTool
 os.environ["LANGSMITH_TRACING"] = "false"
 
 from app.main import chat, health
@@ -239,6 +240,51 @@ def test_follow_up_contextual_cart_reference() -> None:
     assert body["responseType"] == "draft_action"
     assert body["draftAction"]["payload"]["productId"] == first_body["productCards"][0]["productId"]
     assert body["draftAction"]["needsConfirmation"] is True
+
+
+def test_follow_up_contextual_cart_reference_preserves_variant_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    class VariantCatalogClient:
+        @staticmethod
+        def _product() -> dict:
+            return [
+                {
+                    "productId": "p-variant-1",
+                    "variantId": "v-variant-1",
+                    "name": "Variant Jacket",
+                    "slug": "variant-jacket",
+                    "category": "jackets",
+                    "gender": "women",
+                    "price": 490000,
+                    "currency": "VND",
+                    "imageUrl": "https://example.com/jacket.jpg",
+                    "colors": ["black"],
+                    "sizes": ["M"],
+                    "inStock": True,
+                    "stock": 5,
+                }
+            ][0]
+
+        def catalog_search(self, query: str, filters: dict | None = None) -> list[dict]:
+            return [self._product()]
+
+        def catalog_filter(self, filters: dict) -> list[dict]:
+            return [self._product()]
+
+        def catalog_detail(self, slug: str) -> dict | None:
+            product = self._product()
+            return product if slug == product["slug"] else None
+
+    monkeypatch.setattr(graph_nodes.tools, "catalog", CatalogTool(VariantCatalogClient()))
+
+    session_id = "context-cart-variant-session"
+    first = chat(AgentChatRequest(sessionId=session_id, message="ao khoac den size M"))
+    first_body = first.model_dump(by_alias=True)
+
+    response = chat(AgentChatRequest(sessionId=session_id, message="them cai dau tien vao gio"))
+    body = response.model_dump(by_alias=True)
+
+    assert first_body["productCards"][0]["variantId"]
+    assert body["draftAction"]["payload"]["variantId"] == first_body["productCards"][0]["variantId"]
 
 
 def test_remove_cart_draft_contextual_reference() -> None:

@@ -47,6 +47,7 @@ class CamelModel(BaseModel):
 
 class ProductCard(CamelModel):
     product_id: str = Field(alias="productId")
+    variant_id: str | None = Field(default=None, alias="variantId")
     name: str
     slug: str
     category: str

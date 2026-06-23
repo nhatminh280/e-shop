@@ -174,6 +174,18 @@ What it verifies:
 
 The script defaults to the seeded demo user `demo.customer@eshop.local` / `123456`. Override `CHAT_EMAIL`, `CHAT_PASSWORD`, `CHAT_MESSAGE`, or `CHECK_AGENT_HEALTH=false` if needed.
 
+To also verify the cart draft confirmation and cancellation flow through `/api/chat/actions/*`, enable:
+
+```bash
+CHECK_DRAFT_FLOW=true ./scripts/chatbot-integration-smoke.sh
+```
+
+That extended mode:
+
+- sends a follow-up add-to-cart message in the same chat session
+- confirms one `cart.add` draft and checks persisted `action_result` history
+- opens a second session, creates another `cart.add` draft, cancels it, and checks persisted `action_result` history
+
 React apps rely on unit/component tests you add (Jest, Vitest, etc.); configure them under each package.
 
 Stop the test database when done:

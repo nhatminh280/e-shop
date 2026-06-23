@@ -347,6 +347,7 @@ def _handle_cart_action(state: GraphState) -> dict[str, Any]:
 
     action_type = slots.get("action_type", "add")
     quantity = int(slots.get("quantity", 1))
+    selected_variant_id = slots.get("variant_id") or product.variant_id
     if action_type == "remove":
         draft_result, tool_calls = call_tool(
             tool_calls,
@@ -373,8 +374,8 @@ def _handle_cart_action(state: GraphState) -> dict[str, Any]:
         draft_result, tool_calls = call_tool(
             tool_calls,
             "cart.add_draft",
-            {"productId": product.product_id, "variantId": slots.get("variant_id"), "quantity": quantity},
-            lambda: tools.cart.add_draft(product_id=product.product_id, variant_id=slots.get("variant_id"), quantity=quantity),
+            {"productId": product.product_id, "variantId": selected_variant_id, "quantity": quantity},
+            lambda: tools.cart.add_draft(product_id=product.product_id, variant_id=selected_variant_id, quantity=quantity),
             trace_id=state.get("trace_id"),
             session_id=state.get("session_id"),
             user_id=state.get("user_id"),

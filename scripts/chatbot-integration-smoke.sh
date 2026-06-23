@@ -10,6 +10,8 @@ CHAT_PASSWORD="${CHAT_PASSWORD:-123456}"
 TRACE_ID="${TRACE_ID:-trace-chatbot-smoke}"
 REQUEST_ID="${REQUEST_ID:-req-chatbot-smoke}"
 CHECK_AGENT_HEALTH="${CHECK_AGENT_HEALTH:-true}"
+CHECK_DRAFT_FLOW="${CHECK_DRAFT_FLOW:-false}"
+ADD_TO_CART_MESSAGE="${ADD_TO_CART_MESSAGE:-them cai dau tien vao gio}"
 
 require_bin() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -20,6 +22,40 @@ require_bin() {
 
 require_bin curl
 require_bin jq
+
+send_chat() {
+    local token="$1"
+    local message="$2"
+    local session_id="${3:-}"
+    local trace_id="$4"
+    local request_id="$5"
+    local payload
+
+    payload="$(jq -cn \
+        --arg message "$message" \
+        --arg sessionId "$session_id" \
+        '{
+          message: $message,
+          clientContext: {}
+        } + (if $sessionId == "" then {} else {sessionId: $sessionId} end)')"
+
+    curl -fsS \
+        -X POST "$API_BASE_URL/api/chat/messages" \
+        -H "Authorization: Bearer $token" \
+        -H 'Content-Type: application/json' \
+        -H "x-trace-id: $trace_id" \
+        -H "x-request-id: $request_id" \
+        -d "$payload"
+}
+
+fetch_history() {
+    local token="$1"
+    local session_id="$2"
+
+    curl -fsS \
+        "$API_BASE_URL/api/chat/sessions/$session_id/messages?page=0&size=20" \
+        -H "Authorization: Bearer $token"
+}
 
 check_json_health() {
     local url="$1"
@@ -56,15 +92,7 @@ if [[ -z "$token" || "$token" == "null" ]]; then
     exit 1
 fi
 
-chat_response="$(
-    curl -fsS \
-        -X POST "$API_BASE_URL/api/chat/messages" \
-        -H "Authorization: Bearer $token" \
-        -H 'Content-Type: application/json' \
-        -H "x-trace-id: $TRACE_ID" \
-        -H "x-request-id: $REQUEST_ID" \
-        -d "{\"message\":\"$CHAT_MESSAGE\",\"clientContext\":{}}"
-)"
+chat_response="$(send_chat "$token" "$CHAT_MESSAGE" "" "$TRACE_ID" "$REQUEST_ID")"
 
 session_id="$(printf '%s' "$chat_response" | jq -r '.sessionId')"
 intent="$(printf '%s' "$chat_response" | jq -r '.intent')"
@@ -98,11 +126,7 @@ if [[ "$tool_count" -lt 1 ]]; then
     exit 1
 fi
 
-history_response="$(
-    curl -fsS \
-        "$API_BASE_URL/api/chat/sessions/$session_id/messages?page=0&size=10" \
-        -H "Authorization: Bearer $token"
-)"
+history_response="$(fetch_history "$token" "$session_id")"
 
 history_count="$(printf '%s' "$history_response" | jq '.messages | length')"
 first_role="$(printf '%s' "$history_response" | jq -r '.messages[0].role')"
@@ -131,6 +155,134 @@ if [[ "$history_trace_ids" != "$TRACE_ID" ]]; then
     exit 1
 fi
 
+draft_confirm_json='null'
+draft_cancel_json='null'
+
+if [[ "$CHECK_DRAFT_FLOW" == "true" ]]; then
+    add_trace_id="${TRACE_ID}-add"
+    add_request_id="${REQUEST_ID}-add"
+    add_response="$(send_chat "$token" "$ADD_TO_CART_MESSAGE" "$session_id" "$add_trace_id" "$add_request_id")"
+    add_response_type="$(printf '%s' "$add_response" | jq -r '.responseType')"
+    add_needs_confirmation="$(printf '%s' "$add_response" | jq -r '.needsConfirmation')"
+    add_action_type="$(printf '%s' "$add_response" | jq -r '.draftAction.actionType')"
+    add_draft_action_id="$(printf '%s' "$add_response" | jq -r '.draftAction.draftActionId')"
+
+    if [[ "$add_response_type" != "draft_action" ]]; then
+        echo "Expected add-to-cart follow-up to produce draft_action but got $add_response_type" >&2
+        echo "$add_response" >&2
+        exit 1
+    fi
+    if [[ "$add_needs_confirmation" != "true" ]]; then
+        echo "Expected add-to-cart follow-up to require confirmation" >&2
+        echo "$add_response" >&2
+        exit 1
+    fi
+    if [[ "$add_action_type" != "cart.add" ]]; then
+        echo "Expected add-to-cart draft action type cart.add but got $add_action_type" >&2
+        echo "$add_response" >&2
+        exit 1
+    fi
+    if [[ -z "$add_draft_action_id" || "$add_draft_action_id" == "null" ]]; then
+        echo "Draft add response is missing draftActionId" >&2
+        echo "$add_response" >&2
+        exit 1
+    fi
+
+    confirm_response="$(
+        curl -fsS \
+            -X POST "$API_BASE_URL/api/chat/actions/$add_draft_action_id/confirm" \
+            -H "Authorization: Bearer $token"
+    )"
+    confirm_status="$(printf '%s' "$confirm_response" | jq -r '.status')"
+    confirm_action_type="$(printf '%s' "$confirm_response" | jq -r '.actionType')"
+    if [[ "$confirm_status" != "completed" || "$confirm_action_type" != "cart.add" ]]; then
+        echo "Draft confirm did not complete successfully" >&2
+        echo "$confirm_response" >&2
+        exit 1
+    fi
+
+    confirm_history="$(fetch_history "$token" "$session_id")"
+    confirm_history_count="$(printf '%s' "$confirm_history" | jq '.messages | length')"
+    confirm_last_response_type="$(printf '%s' "$confirm_history" | jq -r '.messages[-1].responseType')"
+    if [[ "$confirm_history_count" -lt 5 ]]; then
+        echo "Confirm flow history did not record the expected action_result message" >&2
+        echo "$confirm_history" >&2
+        exit 1
+    fi
+    if [[ "$confirm_last_response_type" != "action_result" ]]; then
+        echo "Confirm flow last responseType should be action_result but got $confirm_last_response_type" >&2
+        echo "$confirm_history" >&2
+        exit 1
+    fi
+    draft_confirm_json="$(jq -cn \
+        --arg draftActionId "$add_draft_action_id" \
+        --arg status "$confirm_status" \
+        --arg actionType "$confirm_action_type" \
+        --argjson historyCount "$confirm_history_count" \
+        '{draftActionId: $draftActionId, status: $status, actionType: $actionType, historyCount: $historyCount}')"
+
+    cancel_search_trace_id="${TRACE_ID}-cancel-search"
+    cancel_search_request_id="${REQUEST_ID}-cancel-search"
+    cancel_search_response="$(send_chat "$token" "$CHAT_MESSAGE" "" "$cancel_search_trace_id" "$cancel_search_request_id")"
+    cancel_session_id="$(printf '%s' "$cancel_search_response" | jq -r '.sessionId')"
+    if [[ -z "$cancel_session_id" || "$cancel_session_id" == "null" ]]; then
+        echo "Cancel flow search response is missing sessionId" >&2
+        echo "$cancel_search_response" >&2
+        exit 1
+    fi
+
+    cancel_add_trace_id="${TRACE_ID}-cancel-add"
+    cancel_add_request_id="${REQUEST_ID}-cancel-add"
+    cancel_add_response="$(send_chat "$token" "$ADD_TO_CART_MESSAGE" "$cancel_session_id" "$cancel_add_trace_id" "$cancel_add_request_id")"
+    cancel_add_response_type="$(printf '%s' "$cancel_add_response" | jq -r '.responseType')"
+    cancel_action_type="$(printf '%s' "$cancel_add_response" | jq -r '.draftAction.actionType')"
+    cancel_draft_action_id="$(printf '%s' "$cancel_add_response" | jq -r '.draftAction.draftActionId')"
+    if [[ "$cancel_add_response_type" != "draft_action" || "$cancel_action_type" != "cart.add" ]]; then
+        echo "Cancel flow add-to-cart step did not produce expected draft_action" >&2
+        echo "$cancel_add_response" >&2
+        exit 1
+    fi
+    if [[ -z "$cancel_draft_action_id" || "$cancel_draft_action_id" == "null" ]]; then
+        echo "Cancel flow add response is missing draftActionId" >&2
+        echo "$cancel_add_response" >&2
+        exit 1
+    fi
+
+    cancel_response="$(
+        curl -fsS \
+            -X POST "$API_BASE_URL/api/chat/actions/$cancel_draft_action_id/cancel" \
+            -H "Authorization: Bearer $token"
+    )"
+    cancel_status="$(printf '%s' "$cancel_response" | jq -r '.status')"
+    cancel_result_action_type="$(printf '%s' "$cancel_response" | jq -r '.actionType')"
+    if [[ "$cancel_status" != "cancelled" || "$cancel_result_action_type" != "cart.add" ]]; then
+        echo "Draft cancel did not return cancelled cart.add" >&2
+        echo "$cancel_response" >&2
+        exit 1
+    fi
+
+    cancel_history="$(fetch_history "$token" "$cancel_session_id")"
+    cancel_history_count="$(printf '%s' "$cancel_history" | jq '.messages | length')"
+    cancel_last_response_type="$(printf '%s' "$cancel_history" | jq -r '.messages[-1].responseType')"
+    if [[ "$cancel_history_count" -lt 5 ]]; then
+        echo "Cancel flow history did not record the expected action_result message" >&2
+        echo "$cancel_history" >&2
+        exit 1
+    fi
+    if [[ "$cancel_last_response_type" != "action_result" ]]; then
+        echo "Cancel flow last responseType should be action_result but got $cancel_last_response_type" >&2
+        echo "$cancel_history" >&2
+        exit 1
+    fi
+    draft_cancel_json="$(jq -cn \
+        --arg draftActionId "$cancel_draft_action_id" \
+        --arg status "$cancel_status" \
+        --arg actionType "$cancel_result_action_type" \
+        --arg sessionId "$cancel_session_id" \
+        --argjson historyCount "$cancel_history_count" \
+        '{draftActionId: $draftActionId, status: $status, actionType: $actionType, sessionId: $sessionId, historyCount: $historyCount}')"
+fi
+
 jq -n \
     --arg apiBaseUrl "$API_BASE_URL" \
     --arg chatAgentUrl "$CHAT_AGENT_URL" \
@@ -140,6 +292,8 @@ jq -n \
     --arg responseType "$response_type" \
     --argjson toolCount "$tool_count" \
     --argjson historyCount "$history_count" \
+    --argjson draftConfirm "$draft_confirm_json" \
+    --argjson draftCancel "$draft_cancel_json" \
     '{
       ok: true,
       apiBaseUrl: $apiBaseUrl,
@@ -149,5 +303,7 @@ jq -n \
       intent: $intent,
       responseType: $responseType,
       toolCount: $toolCount,
-      historyCount: $historyCount
+      historyCount: $historyCount,
+      draftConfirm: $draftConfirm,
+      draftCancel: $draftCancel
     }'
