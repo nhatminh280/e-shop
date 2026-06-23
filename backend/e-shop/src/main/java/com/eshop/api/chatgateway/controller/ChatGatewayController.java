@@ -5,11 +5,13 @@ import com.eshop.api.chatgateway.dto.ChatActionResultResponse;
 import com.eshop.api.chatgateway.dto.ChatContextResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageResponse;
 import com.eshop.api.chatgateway.service.ChatGatewayService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -81,5 +83,14 @@ public class ChatGatewayController {
         @RequestParam(value = "locale", required = false) String locale
     ) {
         return ResponseEntity.ok(chatGatewayService.getContext(principal, locale));
+    }
+
+    @GetMapping("/review/messages")
+    public ResponseEntity<Page<ChatReviewMessageResponse>> getReviewMessages(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "25") int size,
+        Principal principal
+    ) {
+        return ResponseEntity.ok(chatGatewayService.getReviewMessages(page, size, principal));
     }
 }

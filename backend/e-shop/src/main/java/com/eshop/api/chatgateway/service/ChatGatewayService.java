@@ -20,6 +20,7 @@ import com.eshop.api.chatgateway.dto.ChatContextResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryMessageResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageResponse;
 import com.eshop.api.chatgateway.enums.ChatDraftActionStatus;
 import com.eshop.api.chatgateway.enums.ChatMessageRole;
 import com.eshop.api.chatgateway.enums.ChatSessionStatus;
@@ -51,6 +52,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,9 +62,14 @@ import java.math.BigDecimal;
 import java.security.Principal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -71,6 +78,8 @@ import java.util.UUID;
 public class ChatGatewayService {
 
     private static final int DEFAULT_DRAFT_EXPIRY_MINUTES = 15;
+    private static final Set<String> REVIEW_RESPONSE_TYPES = Set.of("tool_error", "fallback");
+    private static final List<String> REVIEW_TOOL_STATUSES = List.of("timeout", "backend_error", "validation_error");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -248,6 +257,15 @@ public class ChatGatewayService {
             StringUtils.hasText(locale) ? locale : "vi-VN",
             Instant.now()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ChatReviewMessageResponse> getReviewMessages(int page, int size, Principal principal) {
+        requireReviewAccess(principal);
+        int resolvedPage = Math.max(page, 0);
+        int resolvedSize = Math.max(1, Math.min(size, 100));
+        return chatMessageRepository.findReviewCandidates(PageRequest.of(resolvedPage, resolvedSize))
+            .map(this::toReviewMessage);
     }
 
     private ChatSession loadOrCreateSession(UUID requestedSessionId, User user) {
@@ -531,6 +549,57 @@ public class ChatGatewayService {
             response != null && response.slots() != null ? response.slots() : Map.of(),
             message.getCreatedAt()
         );
+    }
+
+    private ChatReviewMessageResponse toReviewMessage(ChatMessage message) {
+        List<String> reviewReasons = buildReviewReasons(message);
+        return new ChatReviewMessageResponse(
+            message.getId(),
+            message.getSession() != null ? message.getSession().getId() : null,
+            message.getUser() != null ? message.getUser().getId() : null,
+            message.getBody(),
+            message.getIntent(),
+            message.getResponseType(),
+            message.getTraceId(),
+            message.getFallbackCount(),
+            message.getCreatedAt(),
+            reviewReasons
+        );
+    }
+
+    private List<String> buildReviewReasons(ChatMessage message) {
+        Collection<String> reasons = new LinkedHashSet<>();
+        if (message.getFallbackCount() != null && message.getFallbackCount() > 0) {
+            reasons.add("fallback_count");
+        }
+        String responseType = normalize(message.getResponseType());
+        if (REVIEW_RESPONSE_TYPES.contains(responseType)) {
+            reasons.add("response_type");
+        }
+        if (!chatToolCallRepository.findByMessage_IdAndStatusIn(message.getId(), REVIEW_TOOL_STATUSES).isEmpty()) {
+            reasons.add("tool_status");
+        }
+        return new ArrayList<>(reasons);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private User requireReviewAccess(Principal principal) {
+        User user = requireUser(principal);
+        boolean hasReviewAccess = user.getRoles().stream()
+            .map(role -> role.getName() == null ? "" : role.getName().toUpperCase(Locale.ROOT))
+            .anyMatch(roleName ->
+                roleName.equals("ADMIN")
+                    || roleName.equals("STAFF")
+                    || roleName.equals("ROLE_ADMIN")
+                    || roleName.equals("ROLE_STAFF")
+            );
+        if (!hasReviewAccess) {
+            throw new ApiException("Chat review queue requires staff or admin access", 403);
+        }
+        return user;
     }
 
     private User requireUser(Principal principal) {

@@ -31,12 +31,15 @@ import com.eshop.api.support.dto.CreateSupportConversationRequest;
 import com.eshop.api.support.dto.SupportConversationSummaryResponse;
 import com.eshop.api.support.enums.SupportConversationStatus;
 import com.eshop.api.support.service.SupportMessagingService;
+import com.eshop.api.user.Role;
 import com.eshop.api.user.User;
 import com.eshop.api.user.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -360,6 +363,104 @@ class ChatGatewayServiceTest {
         verifyNoInteractions(chatMessageRepository);
     }
 
+    @Test
+    void getReviewMessagesReturnsReasonsForFallbackAndToolFailures() {
+        User user = user("reviewer@example.com");
+        user.getRoles().add(role("STAFF"));
+        UUID sessionId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        ChatMessage message = ChatMessage.builder()
+            .id(messageId)
+            .session(ChatSession.builder().id(sessionId).user(user).build())
+            .user(user)
+            .role(ChatMessageRole.ASSISTANT)
+            .body("Fallback answer")
+            .intent("fallback")
+            .responseType("fallback")
+            .traceId("trace-review-1")
+            .fallbackCount(1)
+            .createdAt(Instant.parse("2026-06-22T10:15:30Z"))
+            .build();
+        ChatToolCall toolCall = ChatToolCall.builder()
+            .id(UUID.randomUUID())
+            .message(message)
+            .session(message.getSession())
+            .toolName("catalog.search")
+            .status("timeout")
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatMessageRepository.findReviewCandidates(PageRequest.of(0, 25)))
+            .thenReturn(new PageImpl<>(List.of(message)));
+        when(chatToolCallRepository.findByMessage_IdAndStatusIn(
+            messageId,
+            List.of("timeout", "backend_error", "validation_error")
+        )).thenReturn(List.of(toolCall));
+
+        var page = service.getReviewMessages(0, 25, () -> user.getEmail());
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().getFirst().reviewReasons())
+            .containsExactly("fallback_count", "response_type", "tool_status");
+    }
+
+    @Test
+    void getReviewMessagesRejectsNonStaffUser() {
+        User user = user("customer@example.com");
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+
+        ApiException exception = catchThrowableOfType(
+            () -> service.getReviewMessages(0, 25, () -> user.getEmail()),
+            ApiException.class
+        );
+
+        assertThat(exception).hasMessageContaining("staff or admin");
+        assertThat(exception.getStatusCode()).isEqualTo(403);
+        verifyNoInteractions(chatMessageRepository, chatToolCallRepository);
+    }
+
+    @Test
+    void getReviewMessagesReturnsToolStatusOnlyReasonForStaffUser() {
+        User user = user("staff@example.com");
+        user.getRoles().add(role("ROLE_ADMIN"));
+        UUID sessionId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        ChatMessage message = ChatMessage.builder()
+            .id(messageId)
+            .session(ChatSession.builder().id(sessionId).user(user).build())
+            .user(user)
+            .role(ChatMessageRole.ASSISTANT)
+            .body("Normal answer")
+            .intent("product_search")
+            .responseType("answer")
+            .traceId("trace-review-2")
+            .fallbackCount(0)
+            .createdAt(Instant.parse("2026-06-22T11:15:30Z"))
+            .build();
+        ChatToolCall toolCall = ChatToolCall.builder()
+            .id(UUID.randomUUID())
+            .message(message)
+            .session(message.getSession())
+            .toolName("catalog.search")
+            .status("timeout")
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatMessageRepository.findReviewCandidates(PageRequest.of(0, 25)))
+            .thenReturn(new PageImpl<>(List.of(message)));
+        when(chatToolCallRepository.findByMessage_IdAndStatusIn(
+            messageId,
+            List.of("timeout", "backend_error", "validation_error")
+        )).thenReturn(List.of(toolCall));
+
+        var page = service.getReviewMessages(0, 25, () -> user.getEmail());
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().getFirst().reviewReasons())
+            .containsExactly("tool_status");
+    }
+
     private AgentChatResponse draftSupportHandoffResponse(UUID draftActionId) {
         return new AgentChatResponse(
             null,
@@ -399,6 +500,13 @@ class ChatGatewayServiceTest {
         user.setId(UUID.randomUUID());
         user.setEmail(email);
         return user;
+    }
+
+    private Role role(String name) {
+        return Role.builder()
+            .id(1)
+            .name(name)
+            .build();
     }
 
     private AgentChatResponse agentResponse() {

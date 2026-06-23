@@ -5,16 +5,19 @@ import com.eshop.api.chatgateway.dto.ChatActionResultResponse;
 import com.eshop.api.chatgateway.dto.ChatContextResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageResponse;
 import com.eshop.api.chatgateway.service.ChatGatewayService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -149,5 +152,34 @@ class ChatGatewayControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.cartSummary.itemCount").value(2))
             .andExpect(jsonPath("$.locale").value("vi-VN"));
+    }
+
+    @Test
+    void shouldReturnReviewMessages() throws Exception {
+        UUID messageId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(chatGatewayService.getReviewMessages(0, 25, any(Principal.class)))
+            .thenReturn(new PageImpl<>(List.of(new ChatReviewMessageResponse(
+                messageId,
+                sessionId,
+                userId,
+                "Fallback answer",
+                "fallback",
+                "fallback",
+                "trace-review-1",
+                1,
+                Instant.parse("2026-06-22T10:15:30Z"),
+                List.of("fallback_count")
+            ))));
+
+        mockMvc.perform(get("/api/chat/review/messages")
+                .principal(() -> "customer@example.com")
+                .param("page", "0")
+                .param("size", "25"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].messageId").value(messageId.toString()))
+            .andExpect(jsonPath("$.content[0].sessionId").value(sessionId.toString()))
+            .andExpect(jsonPath("$.content[0].reviewReasons[0]").value("fallback_count"));
     }
 }
