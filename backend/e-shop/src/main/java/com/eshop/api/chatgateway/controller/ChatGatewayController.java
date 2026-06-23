@@ -5,6 +5,7 @@ import com.eshop.api.chatgateway.dto.ChatActionResultResponse;
 import com.eshop.api.chatgateway.dto.ChatContextResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageDetailResponse;
 import com.eshop.api.chatgateway.dto.ChatReviewMessageResponse;
 import com.eshop.api.chatgateway.service.ChatGatewayService;
 import jakarta.validation.Valid;
@@ -89,8 +90,28 @@ public class ChatGatewayController {
     public ResponseEntity<Page<ChatReviewMessageResponse>> getReviewMessages(
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "25") int size,
+        @RequestParam(required = false) UUID sessionId,
+        @RequestParam(required = false) String responseType,
+        @RequestParam(required = false) Boolean hasFallback,
+        @RequestParam(required = false) String toolStatus,
         Principal principal
     ) {
-        return ResponseEntity.ok(chatGatewayService.getReviewMessages(page, size, principal));
+        return ResponseEntity.ok(chatGatewayService.getReviewMessages(
+            page,
+            size,
+            sessionId,
+            responseType,
+            hasFallback,
+            toolStatus,
+            principal
+        ));
+    }
+
+    @GetMapping("/review/messages/{messageId}")
+    public ResponseEntity<ChatReviewMessageDetailResponse> getReviewMessageDetail(
+        @PathVariable UUID messageId,
+        Principal principal
+    ) {
+        return ResponseEntity.ok(chatGatewayService.getReviewMessageDetail(messageId, principal));
     }
 }

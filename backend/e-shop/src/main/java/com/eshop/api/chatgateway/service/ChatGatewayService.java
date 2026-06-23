@@ -20,6 +20,7 @@ import com.eshop.api.chatgateway.dto.ChatContextResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryMessageResponse;
 import com.eshop.api.chatgateway.dto.ChatHistoryResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageDetailResponse;
 import com.eshop.api.chatgateway.dto.ChatReviewMessageResponse;
 import com.eshop.api.chatgateway.enums.ChatDraftActionStatus;
 import com.eshop.api.chatgateway.enums.ChatMessageRole;
@@ -261,10 +262,32 @@ public class ChatGatewayService {
 
     @Transactional(readOnly = true)
     public Page<ChatReviewMessageResponse> getReviewMessages(int page, int size, Principal principal) {
+        return getReviewMessages(page, size, null, null, null, null, principal);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ChatReviewMessageResponse> getReviewMessages(
+        int page,
+        int size,
+        UUID sessionId,
+        String responseType,
+        Boolean hasFallback,
+        String toolStatus,
+        Principal principal
+    ) {
         requireReviewAccess(principal);
         int resolvedPage = Math.max(page, 0);
         int resolvedSize = Math.max(1, Math.min(size, 100));
-        Page<ChatMessage> messages = chatMessageRepository.findReviewCandidates(PageRequest.of(resolvedPage, resolvedSize));
+        PageRequest pageRequest = PageRequest.of(resolvedPage, resolvedSize);
+        Page<ChatMessage> messages = hasReviewFilters(sessionId, responseType, hasFallback, toolStatus)
+            ? chatMessageRepository.findReviewCandidatesFiltered(
+                sessionId,
+                normalizeFilter(responseType),
+                hasFallback,
+                normalizeFilter(toolStatus),
+                pageRequest
+            )
+            : chatMessageRepository.findReviewCandidates(pageRequest);
         List<UUID> messageIds = messages.getContent().stream()
             .map(ChatMessage::getId)
             .toList();
@@ -272,6 +295,55 @@ public class ChatGatewayService {
             ? Set.of()
             : new HashSet<>(chatToolCallRepository.findMessageIdsWithReviewableStatuses(messageIds));
         return messages.map(message -> toReviewMessage(message, reviewableToolStatusMessageIds));
+    }
+
+    @Transactional(readOnly = true)
+    public ChatReviewMessageDetailResponse getReviewMessageDetail(UUID messageId, Principal principal) {
+        requireReviewAccess(principal);
+        ChatMessage message = chatMessageRepository.findById(messageId)
+            .orElseThrow(() -> new ApiException("Chat review message not found", 404));
+        UUID sessionId = message.getSession() != null ? message.getSession().getId() : null;
+        if (sessionId == null) {
+            throw new ApiException("Chat review message session not found", 404);
+        }
+        Set<UUID> reviewableToolStatusMessageIds = new HashSet<>(
+            chatToolCallRepository.findMessageIdsWithReviewableStatuses(List.of(messageId))
+        );
+        List<String> reviewReasons = buildReviewReasons(message, reviewableToolStatusMessageIds);
+        List<ChatReviewMessageDetailResponse.SessionMessage> sessionMessages =
+            chatMessageRepository.findBySession_IdOrderByCreatedAtAsc(sessionId, PageRequest.of(0, 100))
+                .stream()
+                .map(this::toReviewSessionMessage)
+                .toList();
+        List<ChatReviewMessageDetailResponse.ToolCall> toolCalls =
+            chatToolCallRepository.findByMessage_IdOrderByCreatedAtAsc(messageId).stream()
+                .map(this::toReviewToolCall)
+                .toList();
+        List<ChatReviewMessageDetailResponse.NodeTrace> nodeTraces =
+            chatNodeTraceRepository.findByMessage_IdOrderByCreatedAtAsc(messageId).stream()
+                .map(this::toReviewNodeTrace)
+                .toList();
+        List<ChatReviewMessageDetailResponse.DraftAction> draftActions =
+            chatDraftActionRepository.findByMessage_IdOrderByCreatedAtAsc(messageId).stream()
+                .map(this::toReviewDraftAction)
+                .toList();
+
+        return new ChatReviewMessageDetailResponse(
+            message.getId(),
+            sessionId,
+            message.getUser() != null ? message.getUser().getId() : null,
+            message.getBody(),
+            message.getIntent(),
+            message.getResponseType(),
+            message.getTraceId(),
+            message.getFallbackCount(),
+            message.getCreatedAt(),
+            reviewReasons,
+            sessionMessages,
+            toolCalls,
+            nodeTraces,
+            draftActions
+        );
     }
 
     private ChatSession loadOrCreateSession(UUID requestedSessionId, User user) {
@@ -573,6 +645,47 @@ public class ChatGatewayService {
         );
     }
 
+    private ChatReviewMessageDetailResponse.SessionMessage toReviewSessionMessage(ChatMessage message) {
+        return new ChatReviewMessageDetailResponse.SessionMessage(
+            message.getId(),
+            message.getRole() != null ? message.getRole().name() : null,
+            message.getBody(),
+            message.getResponseType(),
+            message.getTraceId(),
+            message.getCreatedAt()
+        );
+    }
+
+    private ChatReviewMessageDetailResponse.ToolCall toReviewToolCall(ChatToolCall toolCall) {
+        return new ChatReviewMessageDetailResponse.ToolCall(
+            toolCall.getId(),
+            toolCall.getToolName(),
+            toolCall.getStatus(),
+            toolCall.getTraceId(),
+            toolCall.getCreatedAt()
+        );
+    }
+
+    private ChatReviewMessageDetailResponse.NodeTrace toReviewNodeTrace(ChatNodeTrace nodeTrace) {
+        return new ChatReviewMessageDetailResponse.NodeTrace(
+            nodeTrace.getId(),
+            nodeTrace.getNodeName(),
+            nodeTrace.getStatus(),
+            nodeTrace.getIntent(),
+            nodeTrace.getTraceId(),
+            nodeTrace.getCreatedAt()
+        );
+    }
+
+    private ChatReviewMessageDetailResponse.DraftAction toReviewDraftAction(ChatDraftAction draftAction) {
+        return new ChatReviewMessageDetailResponse.DraftAction(
+            draftAction.getId(),
+            draftAction.getActionType(),
+            draftAction.getStatus() != null ? draftAction.getStatus().name().toLowerCase(Locale.ROOT) : null,
+            draftAction.getExpiresAt()
+        );
+    }
+
     private List<String> buildReviewReasons(ChatMessage message, Set<UUID> reviewableToolStatusMessageIds) {
         Collection<String> reasons = new LinkedHashSet<>();
         if (message.getFallbackCount() != null && message.getFallbackCount() > 0) {
@@ -586,6 +699,17 @@ public class ChatGatewayService {
             reasons.add("tool_status");
         }
         return new ArrayList<>(reasons);
+    }
+
+    private boolean hasReviewFilters(UUID sessionId, String responseType, Boolean hasFallback, String toolStatus) {
+        return sessionId != null
+            || StringUtils.hasText(responseType)
+            || hasFallback != null
+            || StringUtils.hasText(toolStatus);
+    }
+
+    private String normalizeFilter(String value) {
+        return StringUtils.hasText(value) ? value.toLowerCase(Locale.ROOT) : null;
     }
 
     private String normalize(String value) {

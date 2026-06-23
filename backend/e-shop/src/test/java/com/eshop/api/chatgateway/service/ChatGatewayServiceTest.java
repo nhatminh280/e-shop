@@ -9,6 +9,7 @@ import com.eshop.api.chatagent.dto.AgentChatResponse;
 import com.eshop.api.chatagent.dto.AgentDraftAction;
 import com.eshop.api.chatagent.dto.AgentNodeTrace;
 import com.eshop.api.chatagent.dto.AgentToolCallTrace;
+import com.eshop.api.chatgateway.dto.ChatReviewMessageDetailResponse;
 import com.eshop.api.chatgateway.dto.ChatMessageRequest;
 import com.eshop.api.chatgateway.enums.ChatDraftActionStatus;
 import com.eshop.api.chatgateway.enums.ChatMessageRole;
@@ -36,8 +37,10 @@ import com.eshop.api.user.User;
 import com.eshop.api.user.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
@@ -74,7 +77,7 @@ class ChatGatewayServiceTest {
     private final ProductVariantRepository productVariantRepository = mock(ProductVariantRepository.class);
     private final SupportMessagingService supportMessagingService = mock(SupportMessagingService.class);
     private final OrderRepository orderRepository = mock(OrderRepository.class);
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final ChatPayloadRedactor chatPayloadRedactor = new ChatPayloadRedactor(objectMapper);
 
     private final ChatGatewayService service = new ChatGatewayService(
@@ -471,6 +474,113 @@ class ChatGatewayServiceTest {
         assertThat(page.getContent()).hasSize(1);
         assertThat(page.getContent().getFirst().reviewReasons())
             .containsExactly("tool_status");
+    }
+
+    @Test
+    void getReviewMessagesPassesFilterArgumentsToRepository() {
+        User user = user("staff-filter@example.com");
+        user.getRoles().add(role("STAFF"));
+        UUID sessionId = UUID.randomUUID();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatMessageRepository.findReviewCandidatesFiltered(
+            eq(sessionId),
+            eq("tool_error"),
+            eq(true),
+            eq("timeout"),
+            any(PageRequest.class)
+        )).thenReturn(Page.empty());
+
+        var page = service.getReviewMessages(1, 10, sessionId, "tool_error", true, "timeout", () -> user.getEmail());
+
+        assertThat(page.getContent()).isEmpty();
+    }
+
+    @Test
+    void getReviewMessageDetailReturnsSessionContextAndTraceArtifacts() {
+        User user = user("staff-detail@example.com");
+        user.getRoles().add(role("ROLE_ADMIN"));
+        UUID sessionId = UUID.randomUUID();
+        UUID userMessageId = UUID.randomUUID();
+        UUID assistantMessageId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-06-22T10:15:30Z");
+
+        ChatSession session = ChatSession.builder().id(sessionId).user(user).build();
+        ChatMessage userMessage = ChatMessage.builder()
+            .id(userMessageId)
+            .session(session)
+            .user(user)
+            .role(ChatMessageRole.USER)
+            .body("ao khoac den")
+            .traceId("trace-review-detail")
+            .createdAt(createdAt.minusSeconds(20))
+            .build();
+        ChatMessage assistantMessage = ChatMessage.builder()
+            .id(assistantMessageId)
+            .session(session)
+            .user(user)
+            .role(ChatMessageRole.ASSISTANT)
+            .body("Fallback answer")
+            .intent("fallback")
+            .responseType("tool_error")
+            .traceId("trace-review-detail")
+            .fallbackCount(1)
+            .createdAt(createdAt)
+            .build();
+        ChatToolCall toolCall = ChatToolCall.builder()
+            .id(UUID.randomUUID())
+            .session(session)
+            .message(assistantMessage)
+            .traceId("trace-review-detail")
+            .toolName("catalog.search")
+            .status("timeout")
+            .createdAt(createdAt.minusSeconds(5))
+            .build();
+        ChatNodeTrace nodeTrace = ChatNodeTrace.builder()
+            .id(UUID.randomUUID())
+            .session(session)
+            .message(assistantMessage)
+            .traceId("trace-review-detail")
+            .nodeName("route_intent")
+            .intent("product_search")
+            .status("success")
+            .createdAt(createdAt.minusSeconds(7))
+            .build();
+        ChatDraftAction draftAction = ChatDraftAction.builder()
+            .id(UUID.randomUUID())
+            .session(session)
+            .user(user)
+            .message(assistantMessage)
+            .actionType("cart.add")
+            .status(ChatDraftActionStatus.PENDING)
+            .expiresAt(createdAt.plusSeconds(300))
+            .createdAt(createdAt.minusSeconds(3))
+            .build();
+
+        when(userRepository.findByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
+        when(chatMessageRepository.findById(assistantMessageId)).thenReturn(Optional.of(assistantMessage));
+        when(chatToolCallRepository.findMessageIdsWithReviewableStatuses(List.of(assistantMessageId)))
+            .thenReturn(List.of(assistantMessageId));
+        when(chatMessageRepository.findBySession_IdOrderByCreatedAtAsc(eq(sessionId), any(PageRequest.class)))
+            .thenReturn(new PageImpl<>(List.of(userMessage, assistantMessage)));
+        when(chatToolCallRepository.findByMessage_IdOrderByCreatedAtAsc(assistantMessageId))
+            .thenReturn(List.of(toolCall));
+        when(chatNodeTraceRepository.findByMessage_IdOrderByCreatedAtAsc(assistantMessageId))
+            .thenReturn(List.of(nodeTrace));
+        when(chatDraftActionRepository.findByMessage_IdOrderByCreatedAtAsc(assistantMessageId))
+            .thenReturn(List.of(draftAction));
+
+        ChatReviewMessageDetailResponse detail = service.getReviewMessageDetail(assistantMessageId, () -> user.getEmail());
+
+        assertThat(detail.messageId()).isEqualTo(assistantMessageId);
+        assertThat(detail.reviewReasons()).containsExactly("fallback_count", "response_type", "tool_status");
+        assertThat(detail.sessionMessages()).hasSize(2);
+        assertThat(detail.toolCalls()).singleElement().extracting(ChatReviewMessageDetailResponse.ToolCall::toolName)
+            .isEqualTo("catalog.search");
+        assertThat(detail.nodeTraces()).singleElement().extracting(ChatReviewMessageDetailResponse.NodeTrace::nodeName)
+            .isEqualTo("route_intent");
+        assertThat(detail.draftActions()).singleElement().extracting(ChatReviewMessageDetailResponse.DraftAction::actionType)
+            .isEqualTo("cart.add");
     }
 
     private AgentChatResponse draftSupportHandoffResponse(UUID draftActionId) {

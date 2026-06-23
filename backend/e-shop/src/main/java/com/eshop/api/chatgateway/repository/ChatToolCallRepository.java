@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public interface ChatToolCallRepository extends JpaRepository<ChatToolCall, UUID> {
 
+    List<ChatToolCall> findByMessage_IdOrderByCreatedAtAsc(UUID messageId);
+
     @Query("""
         select distinct toolCall.message.id
         from ChatToolCall toolCall
