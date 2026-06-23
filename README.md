@@ -155,6 +155,25 @@ cd backend/e-shop
 ./mvnw test
 ```
 
+Run the chatbot gateway smoke check against a live backend + chat-agent stack:
+
+```bash
+chmod +x scripts/chatbot-integration-smoke.sh
+API_BASE_URL=http://127.0.0.1:8080 \
+CHAT_AGENT_URL=http://127.0.0.1:8010 \
+./scripts/chatbot-integration-smoke.sh
+```
+
+What it verifies:
+
+- Spring Boot `/actuator/health` is `UP`
+- optional Python `chat-agent` `/agent/health` is `ok`
+- demo customer login returns a JWT token
+- `/api/chat/messages` returns a structured chatbot response with trace propagation
+- `/api/chat/sessions/{sessionId}/messages` contains persisted `USER` and `ASSISTANT` messages for the same trace
+
+The script defaults to the seeded demo user `demo.customer@eshop.local` / `123456`. Override `CHAT_EMAIL`, `CHAT_PASSWORD`, `CHAT_MESSAGE`, or `CHECK_AGENT_HEALTH=false` if needed.
+
 React apps rely on unit/component tests you add (Jest, Vitest, etc.); configure them under each package.
 
 Stop the test database when done:
