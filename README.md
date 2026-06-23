@@ -185,6 +185,8 @@ That extended mode:
 - sends a follow-up add-to-cart message in the same chat session
 - confirms one `cart.add` draft and checks persisted `action_result` history
 - opens a second session, creates another `cart.add` draft, cancels it, and checks persisted `action_result` history
+- confirms one `support.handoff` draft and checks persisted `action_result` history
+- opens a second support session, cancels the `support.handoff` draft, and checks persisted `action_result` history
 
 React apps rely on unit/component tests you add (Jest, Vitest, etc.); configure them under each package.
 

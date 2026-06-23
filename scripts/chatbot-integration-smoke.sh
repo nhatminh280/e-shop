@@ -12,6 +12,7 @@ REQUEST_ID="${REQUEST_ID:-req-chatbot-smoke}"
 CHECK_AGENT_HEALTH="${CHECK_AGENT_HEALTH:-true}"
 CHECK_DRAFT_FLOW="${CHECK_DRAFT_FLOW:-false}"
 ADD_TO_CART_MESSAGE="${ADD_TO_CART_MESSAGE:-them cai dau tien vao gio}"
+SUPPORT_MESSAGE="${SUPPORT_MESSAGE:-toi muon gap nhan vien ho tro}"
 
 require_bin() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -157,6 +158,8 @@ fi
 
 draft_confirm_json='null'
 draft_cancel_json='null'
+support_confirm_json='null'
+support_cancel_json='null'
 
 if [[ "$CHECK_DRAFT_FLOW" == "true" ]]; then
     add_trace_id="${TRACE_ID}-add"
@@ -281,6 +284,115 @@ if [[ "$CHECK_DRAFT_FLOW" == "true" ]]; then
         --arg sessionId "$cancel_session_id" \
         --argjson historyCount "$cancel_history_count" \
         '{draftActionId: $draftActionId, status: $status, actionType: $actionType, sessionId: $sessionId, historyCount: $historyCount}')"
+
+    support_trace_id="${TRACE_ID}-support"
+    support_request_id="${REQUEST_ID}-support"
+    support_response="$(send_chat "$token" "$SUPPORT_MESSAGE" "" "$support_trace_id" "$support_request_id")"
+    support_session_id="$(printf '%s' "$support_response" | jq -r '.sessionId')"
+    support_response_type="$(printf '%s' "$support_response" | jq -r '.responseType')"
+    support_action_type="$(printf '%s' "$support_response" | jq -r '.draftAction.actionType')"
+    support_needs_confirmation="$(printf '%s' "$support_response" | jq -r '.needsConfirmation')"
+    support_draft_action_id="$(printf '%s' "$support_response" | jq -r '.draftAction.draftActionId')"
+    if [[ "$support_response_type" != "handoff" ]]; then
+        echo "Expected support flow to produce handoff but got $support_response_type" >&2
+        echo "$support_response" >&2
+        exit 1
+    fi
+    if [[ "$support_action_type" != "support.handoff" || "$support_needs_confirmation" != "true" ]]; then
+        echo "Expected support flow to require confirmation for support.handoff" >&2
+        echo "$support_response" >&2
+        exit 1
+    fi
+    if [[ -z "$support_draft_action_id" || "$support_draft_action_id" == "null" ]]; then
+        echo "Support handoff response is missing draftActionId" >&2
+        echo "$support_response" >&2
+        exit 1
+    fi
+
+    support_confirm_response="$(
+        curl -fsS \
+            -X POST "$API_BASE_URL/api/chat/actions/$support_draft_action_id/confirm" \
+            -H "Authorization: Bearer $token"
+    )"
+    support_confirm_status="$(printf '%s' "$support_confirm_response" | jq -r '.status')"
+    support_confirm_action_type="$(printf '%s' "$support_confirm_response" | jq -r '.actionType')"
+    if [[ "$support_confirm_status" != "completed" || "$support_confirm_action_type" != "support.handoff" ]]; then
+        echo "Support draft confirm did not complete successfully" >&2
+        echo "$support_confirm_response" >&2
+        exit 1
+    fi
+
+    support_confirm_history="$(fetch_history "$token" "$support_session_id")"
+    support_confirm_history_count="$(printf '%s' "$support_confirm_history" | jq '.messages | length')"
+    support_confirm_last_response_type="$(printf '%s' "$support_confirm_history" | jq -r '.messages[-1].responseType')"
+    if [[ "$support_confirm_history_count" -lt 3 ]]; then
+        echo "Support confirm history did not record the expected action_result message" >&2
+        echo "$support_confirm_history" >&2
+        exit 1
+    fi
+    if [[ "$support_confirm_last_response_type" != "action_result" ]]; then
+        echo "Support confirm last responseType should be action_result but got $support_confirm_last_response_type" >&2
+        echo "$support_confirm_history" >&2
+        exit 1
+    fi
+    support_confirm_json="$(jq -cn \
+        --arg draftActionId "$support_draft_action_id" \
+        --arg status "$support_confirm_status" \
+        --arg actionType "$support_confirm_action_type" \
+        --arg sessionId "$support_session_id" \
+        --argjson historyCount "$support_confirm_history_count" \
+        '{draftActionId: $draftActionId, status: $status, actionType: $actionType, sessionId: $sessionId, historyCount: $historyCount}')"
+
+    support_cancel_trace_id="${TRACE_ID}-support-cancel"
+    support_cancel_request_id="${REQUEST_ID}-support-cancel"
+    support_cancel_response="$(send_chat "$token" "$SUPPORT_MESSAGE" "" "$support_cancel_trace_id" "$support_cancel_request_id")"
+    support_cancel_session_id="$(printf '%s' "$support_cancel_response" | jq -r '.sessionId')"
+    support_cancel_draft_action_id="$(printf '%s' "$support_cancel_response" | jq -r '.draftAction.draftActionId')"
+    support_cancel_action_type="$(printf '%s' "$support_cancel_response" | jq -r '.draftAction.actionType')"
+    if [[ "$support_cancel_action_type" != "support.handoff" ]]; then
+        echo "Support cancel flow did not produce support.handoff draft" >&2
+        echo "$support_cancel_response" >&2
+        exit 1
+    fi
+    if [[ -z "$support_cancel_draft_action_id" || "$support_cancel_draft_action_id" == "null" ]]; then
+        echo "Support cancel response is missing draftActionId" >&2
+        echo "$support_cancel_response" >&2
+        exit 1
+    fi
+
+    support_cancel_result="$(
+        curl -fsS \
+            -X POST "$API_BASE_URL/api/chat/actions/$support_cancel_draft_action_id/cancel" \
+            -H "Authorization: Bearer $token"
+    )"
+    support_cancel_status="$(printf '%s' "$support_cancel_result" | jq -r '.status')"
+    support_cancel_result_action_type="$(printf '%s' "$support_cancel_result" | jq -r '.actionType')"
+    if [[ "$support_cancel_status" != "cancelled" || "$support_cancel_result_action_type" != "support.handoff" ]]; then
+        echo "Support draft cancel did not return cancelled support.handoff" >&2
+        echo "$support_cancel_result" >&2
+        exit 1
+    fi
+
+    support_cancel_history="$(fetch_history "$token" "$support_cancel_session_id")"
+    support_cancel_history_count="$(printf '%s' "$support_cancel_history" | jq '.messages | length')"
+    support_cancel_last_response_type="$(printf '%s' "$support_cancel_history" | jq -r '.messages[-1].responseType')"
+    if [[ "$support_cancel_history_count" -lt 3 ]]; then
+        echo "Support cancel history did not record the expected action_result message" >&2
+        echo "$support_cancel_history" >&2
+        exit 1
+    fi
+    if [[ "$support_cancel_last_response_type" != "action_result" ]]; then
+        echo "Support cancel last responseType should be action_result but got $support_cancel_last_response_type" >&2
+        echo "$support_cancel_history" >&2
+        exit 1
+    fi
+    support_cancel_json="$(jq -cn \
+        --arg draftActionId "$support_cancel_draft_action_id" \
+        --arg status "$support_cancel_status" \
+        --arg actionType "$support_cancel_result_action_type" \
+        --arg sessionId "$support_cancel_session_id" \
+        --argjson historyCount "$support_cancel_history_count" \
+        '{draftActionId: $draftActionId, status: $status, actionType: $actionType, sessionId: $sessionId, historyCount: $historyCount}')"
 fi
 
 jq -n \
@@ -294,6 +406,8 @@ jq -n \
     --argjson historyCount "$history_count" \
     --argjson draftConfirm "$draft_confirm_json" \
     --argjson draftCancel "$draft_cancel_json" \
+    --argjson supportConfirm "$support_confirm_json" \
+    --argjson supportCancel "$support_cancel_json" \
     '{
       ok: true,
       apiBaseUrl: $apiBaseUrl,
@@ -305,5 +419,7 @@ jq -n \
       toolCount: $toolCount,
       historyCount: $historyCount,
       draftConfirm: $draftConfirm,
-      draftCancel: $draftCancel
+      draftCancel: $draftCancel,
+      supportConfirm: $supportConfirm,
+      supportCancel: $supportCancel
     }'
