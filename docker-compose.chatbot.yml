@@ -1,0 +1,42 @@
+services:
+  chat-agent:
+    build:
+      context: ./chat-agent
+    environment:
+      MOCK_BACKEND: "false"
+      BACKEND_BASE_URL: http://api:8080
+      RECOMMENDER_BASE_URL: ${RECOMMENDER_BASE_URL:-http://18.143.45.118:8000}
+      RECOMMENDER_TIMEOUT_SECONDS: ${RECOMMENDER_TIMEOUT_SECONDS:-5}
+      BACKEND_TIMEOUT_SECONDS: 3
+      BACKEND_RETRIES: 1
+      BACKEND_CIRCUIT_FAILURE_THRESHOLD: 3
+      BACKEND_CIRCUIT_COOLDOWN_SECONDS: 10
+      KNOWLEDGE_LOCAL_FALLBACK: "${KNOWLEDGE_LOCAL_FALLBACK:-true}"
+      KNOWLEDGE_RETRIEVAL_MODE: "${KNOWLEDGE_RETRIEVAL_MODE:-hybrid}"
+      LLM_ENABLED: "${LLM_ENABLED:-false}"
+      LLM_API_URL: "${LLM_API_URL:-https://api.openai.com/v1/chat/completions}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4o-mini}"
+      LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-8}"
+      CHAT_AGENT_JSON_LOGS: "true"
+      CHAT_AGENT_LOG_LEVEL: INFO
+    ports:
+      - "${CHAT_AGENT_PORT:-8010}:8010"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  chat-agent-gradio:
+    build:
+      context: ./chat-agent
+    command: python gradio_tester.py
+    environment:
+      AGENT_BASE_URL: http://chat-agent:8010
+      GRADIO_AGENT_TIMEOUT_SECONDS: 20
+      GRADIO_PORT: 7861
+    ports:
+      - "${CHAT_AGENT_GRADIO_PORT:-7861}:7861"
+    depends_on:
+      - chat-agent
+    restart: unless-stopped

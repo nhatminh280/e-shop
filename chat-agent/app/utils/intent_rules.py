@@ -9,10 +9,16 @@ ORDER_LOOKUP_TERMS = (
     "check order",
     "check my order",
     "where is my order",
+    "what order",
+    "what about order",
+    "my order",
+    "my orders",
     "don hang gan nhat",
     "latest order",
     "most recent order",
     "order es",
+    "order ord",
+    "ord-",
     "tracking",
     "shipment",
     "giao hang",
@@ -96,6 +102,8 @@ def _contains_term(text: str, term: str) -> bool:
         pattern = r"\bvariants?\b"
     elif term == "order es":
         pattern = r"\border\s+es\d+\b"
+    elif term == "ord-":
+        pattern = r"\bord-\d+\b"
     else:
         pattern = r"\b" + r"\s+".join(re.escape(part) for part in term.split()) + r"\b"
     return re.search(pattern, text) is not None

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import cached_property
 from pathlib import Path
 from typing import Any
 
-from app.knowledge import LocalHybridKnowledgeIndex, load_all_knowledge_records
+from app.knowledge import LocalHybridKnowledgeIndex, LocalVectorKnowledgeIndex, load_policy_faq_records
 
 from .base_client import BackendClient
 
@@ -38,7 +39,11 @@ class MockBackendClient(BackendClient):
 
     @cached_property
     def knowledge_index(self) -> LocalHybridKnowledgeIndex:
-        return LocalHybridKnowledgeIndex.from_records(load_all_knowledge_records(self.data["products"]))
+        return LocalHybridKnowledgeIndex.from_records(load_policy_faq_records())
+
+    @cached_property
+    def vector_knowledge_index(self) -> LocalVectorKnowledgeIndex:
+        return LocalVectorKnowledgeIndex.from_records(load_policy_faq_records())
 
     def catalog_search(self, query: str, filters: dict[str, Any] | None = None, limit: int = 4) -> list[dict[str, Any]]:
         filters = filters or {}
@@ -167,7 +172,21 @@ class MockBackendClient(BackendClient):
         return self.data["products"][0] if product_id is None else self.catalog_detail(product_id)
 
     def knowledge_retrieve(self, query: str, limit: int = 2) -> list[dict[str, Any]]:
+        mode = os.getenv("KNOWLEDGE_RETRIEVAL_MODE", "hybrid").lower()
+        if mode == "qdrant":
+            return self._qdrant_knowledge_retrieve(query, limit)
+        if mode == "vector":
+            return self.vector_knowledge_index.retrieve(query, limit=limit)
         return self.knowledge_index.retrieve(query, limit=limit)
+
+    def _qdrant_knowledge_retrieve(self, query: str, limit: int) -> list[dict[str, Any]]:
+        try:
+            from app.knowledge.qdrant_index import QdrantKnowledgeIndex
+
+            return QdrantKnowledgeIndex().retrieve(query, limit=limit)
+        except Exception:
+            # Defensive fallback so Qdrant downtime does not break the chat
+            return self.knowledge_index.retrieve(query, limit=limit)
 
     def support_create(self, payload: dict[str, Any]) -> dict[str, Any]:
         return {"conversationId": "mock-support-conversation", "status": "created", **payload}

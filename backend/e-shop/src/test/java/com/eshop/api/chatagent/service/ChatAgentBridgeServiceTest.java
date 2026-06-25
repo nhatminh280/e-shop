@@ -43,6 +43,7 @@ class ChatAgentBridgeServiceTest {
             List.of(),
             List.of(),
             Map.of(),
+            List.of(),
             1.0,
             1.0,
             false,

@@ -45,6 +45,7 @@ public class SecurityConfig {
                 "/api/auth/activate/**",
                 "/api/payments/*/confirm",
                 "/api/catalog/**",
+                "/api/recommendations/**",
                 "/swagger-ui/**",
                 "/v3/api-docs/**",
                 "/ws/**").permitAll().requestMatchers("/actuator/**").permitAll().requestMatchers("/api/admin/**").hasAnyRole(

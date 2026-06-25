@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from app.clients import BackendClientError
 from app.schemas import KnowledgeSearchResult
 from pydantic import ValidationError
@@ -7,15 +9,15 @@ from pydantic import ValidationError
 from .base import BaseTool, ToolResult
 
 
-MIN_KNOWLEDGE_MATCHED_TOKENS = 1
-MIN_VECTOR_SCORE = 0.7
-MIN_HYBRID_SCORE = 0.7
+MIN_KNOWLEDGE_MATCHED_TOKENS = int(os.getenv("MIN_KNOWLEDGE_MATCHED_TOKENS", "1"))
+MIN_VECTOR_SCORE = float(os.getenv("MIN_VECTOR_SCORE", "0.4"))
+MIN_HYBRID_SCORE = float(os.getenv("MIN_HYBRID_SCORE", "0.7"))
 
 
 class KnowledgeTool(BaseTool):
-    def retrieve(self, query: str) -> ToolResult:
+    def retrieve(self, query: str, limit: int = 3) -> ToolResult:
         try:
-            docs = self.client.knowledge_retrieve(query=query)
+            docs = self.client.knowledge_retrieve(query=query, limit=limit)
         except BackendClientError as exc:
             return self.client_error(exc)
         except Exception as exc:  # pragma: no cover - defensive fallback

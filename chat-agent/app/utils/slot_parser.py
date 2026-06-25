@@ -40,7 +40,21 @@ CATEGORY_MAP = {
     "balo": "backpack",
 }
 
-GENDER_MAP = {"nam": "men", "men": "men", "nu": "women", "women": "women", "unisex": "unisex"}
+GENDER_MAP = {
+    "nam": "men",
+    "men": "men",
+    "man": "men",
+    "male": "men",
+    "guy": "men",
+    "guys": "men",
+    "nu": "women",
+    "women": "women",
+    "woman": "women",
+    "female": "women",
+    "ladies": "women",
+    "lady": "women",
+    "unisex": "unisex",
+}
 
 ORDINAL_MAP = {
     "first": 0,
@@ -125,7 +139,7 @@ def extract_slots(text: str, original_message: str) -> dict[str, Any]:
     ):
         slots["product_reference"] = "current"
 
-    order_match = re.search(r"\bES\d{3,}\b", original_message, flags=re.IGNORECASE)
+    order_match = re.search(r"\b(?:ES|ORD-)\d{3,}\b", original_message, flags=re.IGNORECASE)
     if order_match:
         slots["order_id"] = order_match.group(0).upper()
     elif any(term in text for term in ("gan nhat", "latest order", "most recent order")):

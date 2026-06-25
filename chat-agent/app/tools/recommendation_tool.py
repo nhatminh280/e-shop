@@ -40,6 +40,15 @@ class RecommendationTool(BaseTool):
             return self.unexpected_error(exc)
         return _products_to_result(products)
 
+    def by_text(self, query: str, limit: int = 4) -> ToolResult:
+        try:
+            products = self.client.recommend_by_text(query=query, limit=limit)
+        except BackendClientError as exc:
+            return self.client_error(exc)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            return self.unexpected_error(exc)
+        return _products_to_result(products)
+
 
 def _products_to_result(products: list[dict]) -> ToolResult:
     if not products:

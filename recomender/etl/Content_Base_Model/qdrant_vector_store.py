@@ -289,6 +289,41 @@ class QdrantVectorStore:
 
         return result_ids, result_scores
 
+    def search_by_vector(
+        self,
+        query_vector: list[float],
+        k: int = 10,
+    ) -> tuple[list[str], list[float]]:
+        """Search Qdrant directly with a pre-computed query vector.
+
+        Used for text-only / image-only ad-hoc queries (no anchor variant_id).
+        """
+        if hasattr(self.client, "search"):
+            results = self.client.search(
+                collection_name=self.config.COLLECTION,
+                query_vector=query_vector,
+                limit=k,
+                with_payload=True,
+            )
+        else:
+            results = self.client.query_points(
+                collection_name=self.config.COLLECTION,
+                query=query_vector,
+                limit=k,
+                with_payload=True,
+            ).points
+
+        result_ids: list[str] = []
+        result_scores: list[float] = []
+        for point in results:
+            payload = point.payload or {}
+            result_variant_id = str(payload.get("variant_id", ""))
+            if not result_variant_id:
+                continue
+            result_ids.append(result_variant_id)
+            result_scores.append(float(point.score))
+        return result_ids, result_scores
+
     def batch_search(self, variant_ids: list[str], k: int = 10) -> dict[str, tuple[list[str], list[float]]]:
         results: dict[str, tuple[list[str], list[float]]] = {}
         for variant_id in variant_ids:

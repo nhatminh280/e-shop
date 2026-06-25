@@ -4,6 +4,7 @@ import java.util.List;
 
 public record AgentProductCard(
     String productId,
+    String variantId,
     String name,
     String slug,
     String category,
@@ -15,6 +16,9 @@ public record AgentProductCard(
     List<String> sizes,
     Boolean inStock,
     Integer stock,
-    String reason
+    String reason,
+    Integer recommendationRank,
+    Double recommendationScore,
+    String recommendationReason
 ) {
 }

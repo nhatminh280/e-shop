@@ -5,6 +5,19 @@ from typing import Any
 
 
 _trace_context: ContextVar[dict[str, str]] = ContextVar("trace_context", default={})
+_auth_token: ContextVar[str | None] = ContextVar("auth_token", default=None)
+
+
+def set_auth_token(token: str | None) -> Token[str | None]:
+    return _auth_token.set(token)
+
+
+def reset_auth_token(token: Token[str | None]) -> None:
+    _auth_token.reset(token)
+
+
+def get_auth_token() -> str | None:
+    return _auth_token.get()
 
 
 def set_trace_context(

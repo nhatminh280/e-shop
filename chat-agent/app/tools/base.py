@@ -50,6 +50,7 @@ def to_product_card(
     in_stock = bool(product["inStock"]) if "inStock" in product else stock > 0
     return ProductCard(
         productId=product_id,
+        variantId=product.get("variantId"),
         name=product["name"],
         slug=product["slug"],
         category=product["category"],

@@ -15,6 +15,7 @@ public record AgentChatResponse(
     List<AgentToolCallTrace> toolCalls,
     List<AgentNodeTrace> nodeTraces,
     Map<String, Object> slots,
+    List<AgentCitation> citations,
     Double intentConfidence,
     Double routingConfidence,
     Boolean needsReview,
