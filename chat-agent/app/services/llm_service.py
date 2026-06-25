@@ -94,8 +94,10 @@ def _prompt(
             f"Knowledge documents:\n{_compact_documents(grounding_documents)}",
             f"Order:\n{_compact_order(order)}",
             f"Tool summaries:\n{chr(10).join(tool_summaries) if tool_summaries else 'none'}",
-            "Write one customer-facing answer. If products are provided, mention at most three product names. "
-            "If documents are provided, cite source ids in parentheses like (source: shipping).",
+            "Write ONE customer-facing answer that synthesizes ALL provided knowledge documents when more than one is relevant. "
+            "Do NOT copy a markdown section verbatim. Keep the answer to 2-4 sentences. "
+            "If documents are provided, cite source ids in parentheses like (source: shipping). "
+            "If products are provided, mention at most three product names.",
         ]
     )
 

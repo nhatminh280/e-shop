@@ -34,4 +34,7 @@ class GraphState(TypedDict):
     last_selected_order: NotRequired[dict[str, Any] | None]
     grounding_documents: NotRequired[list[dict[str, Any]]]
     grounding_order: NotRequired[dict[str, Any] | None]
+    citations: NotRequired[list[dict[str, Any]]]
+    suggested_topics: NotRequired[list[str]]
+    rewritten_query: NotRequired[str]
     fallback_count: NotRequired[int]

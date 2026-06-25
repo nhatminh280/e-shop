@@ -43,6 +43,19 @@ class BackendClient(ABC):
     ) -> list[dict[str, Any]]:
         raise NotImplementedError
 
+    def recommend_by_text(
+        self,
+        query: str,
+        limit: int = 4,
+        min_similarity: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Semantic product search via the recommender's CLIP text head.
+
+        Default returns empty so a mock backend does not need to implement it.
+        Override in concrete clients that talk to the live recommender.
+        """
+        return []
+
     @abstractmethod
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         raise NotImplementedError
