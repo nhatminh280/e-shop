@@ -68,6 +68,7 @@ class ChatGatewayControllerTest {
                 List.of(),
                 List.of(),
                 Map.of(),
+                List.of(),
                 0.9,
                 0.9,
                 false,

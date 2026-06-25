@@ -6,6 +6,7 @@ import com.eshop.api.cart.service.CartService;
 import com.eshop.api.catalog.repository.ProductVariantRepository;
 import com.eshop.api.chatagent.client.ChatAgentClient;
 import com.eshop.api.chatagent.dto.AgentChatResponse;
+import com.eshop.api.chatagent.dto.AgentCitation;
 import com.eshop.api.chatagent.dto.AgentDraftAction;
 import com.eshop.api.chatagent.dto.AgentNodeTrace;
 import com.eshop.api.chatagent.dto.AgentToolCallTrace;
@@ -284,6 +285,76 @@ class ChatGatewayServiceTest {
             .contains("fallbackCount")
             .contains("1");
         assertThat(assistantMessage.getBody()).contains("temporarily unavailable");
+    }
+
+    @Test
+    void sendMessagePersistsCitationsInPayloadJson() {
+        List<ChatMessage> savedMessages = new ArrayList<>();
+        UUID sessionId = UUID.randomUUID();
+        when(chatSessionRepository.save(any(ChatSession.class))).thenAnswer(invocation -> {
+            ChatSession session = invocation.getArgument(0);
+            session.setId(sessionId);
+            session.setStatus(ChatSessionStatus.OPEN);
+            return session;
+        });
+        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
+            ChatMessage message = invocation.getArgument(0);
+            savedMessages.add(message);
+            return message;
+        });
+        when(chatToolCallRepository.save(any(ChatToolCall.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatNodeTraceRepository.save(any(ChatNodeTrace.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chatAgentClient.chat(any(), any(), any(), any(), any(), any())).thenReturn(responseWithCitation());
+
+        service.sendMessage(
+            new ChatMessageRequest(null, "what is your return policy?", Map.of()),
+            null,
+            null,
+            "trace-citations",
+            "request-citations",
+            null
+        );
+
+        ChatMessage assistantMessage = savedMessages.stream()
+            .filter(message -> message.getRole() == ChatMessageRole.ASSISTANT)
+            .findFirst()
+            .orElseThrow();
+
+        // Citations must round-trip into the persisted assistant payload so admin
+        // review / audit / FE replay can show the grounding source for each answer.
+        String payloadAsString = assistantMessage.getPayloadJson().toString();
+        assertThat(payloadAsString)
+            .contains("citations")
+            .contains("return-refund")
+            .contains("Return and Refund Policy");
+    }
+
+    private AgentChatResponse responseWithCitation() {
+        return new AgentChatResponse(
+            null,
+            null,
+            "policy_or_faq",
+            "answer",
+            "Returns within 30 days (source: return-refund).",
+            List.of(),
+            null,
+            false,
+            List.of(),
+            List.of(),
+            Map.of(),
+            List.of(new AgentCitation(
+                "return-refund",
+                "return_refund",
+                "Return and Refund Policy",
+                "Returns accepted within 30 days for unworn items.",
+                0.87
+            )),
+            0.9,
+            0.9,
+            false,
+            12.0,
+            0
+        );
     }
 
     @Test
@@ -609,6 +680,7 @@ class ChatGatewayServiceTest {
             List.of(),
             List.of(),
             Map.of(),
+            List.of(),
             0.9,
             0.8,
             false,
@@ -671,6 +743,7 @@ class ChatGatewayServiceTest {
                 "node failed for customer@example.com and 0901234567"
             )),
             Map.of("email", "customer@example.com", "token", "raw-token"),
+            List.of(),
             0.7,
             0.8,
             true,

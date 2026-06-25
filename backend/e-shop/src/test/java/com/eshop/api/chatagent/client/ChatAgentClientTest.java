@@ -113,4 +113,53 @@ class ChatAgentClientTest {
         ));
         server.verify();
     }
+
+    @Test
+    void shouldDeserializeCitationsFromAgentResponse() {
+        server.expect(once(), requestTo("http://agent.local/agent/chat"))
+            .andExpect(method(POST))
+            .andRespond(withSuccess("""
+                {
+                  "sessionId": "session-1",
+                  "traceId": "trace-1",
+                  "intent": "policy_or_faq",
+                  "responseType": "answer",
+                  "answer": "Returns within 30 days (source: return-refund).",
+                  "productCards": [],
+                  "draftAction": null,
+                  "needsConfirmation": false,
+                  "toolCalls": [],
+                  "nodeTraces": [],
+                  "slots": {},
+                  "citations": [
+                    {
+                      "sourceId": "return-refund",
+                      "sourceType": "return_refund",
+                      "title": "Return and Refund Policy",
+                      "snippet": "We accept returns within 30 days for unworn items.",
+                      "score": 0.87
+                    }
+                  ],
+                  "intentConfidence": 0.8,
+                  "routingConfidence": 0.9,
+                  "needsReview": false,
+                  "latencyMs": 12.0,
+                  "fallbackCount": 0
+                }
+                """, MediaType.APPLICATION_JSON));
+
+        AgentChatResponse response = client.chat(
+            new AgentChatRequest("return policy?", "session-1", null, null, null, null, false, Map.of()),
+            "Bearer token",
+            "trace-1",
+            "request-1",
+            "00-abc"
+        );
+
+        assertThat(response.citations()).hasSize(1);
+        assertThat(response.citations().get(0).sourceId()).isEqualTo("return-refund");
+        assertThat(response.citations().get(0).title()).isEqualTo("Return and Refund Policy");
+        assertThat(response.citations().get(0).score()).isEqualTo(0.87);
+        server.verify();
+    }
 }
