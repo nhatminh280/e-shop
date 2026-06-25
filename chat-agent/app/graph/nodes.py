@@ -4,7 +4,12 @@ from typing import Any
 
 from app.graph.state import GraphState
 from app.schemas import DraftAction, ProductCard
+from app.services import grounding_check_service
 from app.services import memory_service
+from app.services import query_rewrite_service
+from app.services.llm_intent_service import classify_intent_with_llm
+from app.services.llm_service import generate_grounded_answer
+from app.services.logging_service import log_event
 from app.services.trace_service import call_tool
 from app.tools import ToolRegistry
 from app.tools.base import ToolResult
@@ -92,8 +97,19 @@ def classify_intent(state: GraphState) -> dict[str, Any]:
             "intent_confidence": state.get("intent_confidence", CONFIDENCE_CERTAIN),
             "node_trace": append_node(state, "classify_intent"),
         }
-    intent = classify_intent_rule(state.get("normalized_message", ""))
-    confidence = _intent_confidence(intent, state.get("normalized_message", ""))
+    normalized = state.get("normalized_message", "")
+    original = state.get("message", "")
+    # Prefer LLM intent classification (handles paraphrasing, typos, Vietnamese,
+    # mixed-language). Falls back to keyword rules when LLM is disabled or fails.
+    llm_intent = classify_intent_with_llm(original or normalized)
+    if llm_intent is not None:
+        return {
+            "intent": llm_intent,
+            "intent_confidence": CONFIDENCE_HIGH,
+            "node_trace": append_node(state, f"classify_intent:{llm_intent}:llm"),
+        }
+    intent = classify_intent_rule(normalized)
+    confidence = _intent_confidence(intent, normalized)
     return {
         "intent": intent,
         "intent_confidence": confidence,
@@ -154,6 +170,21 @@ def build_clarification_response(state: GraphState) -> dict[str, Any]:
     }
 
 
+def rewrite_query_for_retrieval(state: GraphState) -> dict[str, Any]:
+    if state.get("intent") != "policy_or_faq":
+        return {"node_trace": append_node(state, "rewrite_query_for_retrieval")}
+    memory = memory_service.get(state.get("session_id", ""))
+    rewritten = query_rewrite_service.rewrite_query_with_history(
+        message=state.get("message", ""),
+        last_assistant=memory.last_assistant_response,
+        last_intent=memory.last_intent,
+    )
+    updates: dict[str, Any] = {"node_trace": append_node(state, "rewrite_query_for_retrieval")}
+    if rewritten and rewritten != state.get("message", ""):
+        updates["rewritten_query"] = rewritten
+    return updates
+
+
 def ground_response_in_tool_results(state: GraphState) -> dict[str, Any]:
     intent = state.get("intent", "general")
 
@@ -187,6 +218,40 @@ def output_guardrails(state: GraphState) -> dict[str, Any]:
         "needs_confirmation": needs_confirmation,
         "node_trace": append_node(state, "output_guardrails"),
     }
+
+
+def refine_grounded_answer_with_llm(state: GraphState) -> dict[str, Any]:
+    response_type = state.get("response_type", "answer")
+    if response_type not in {"answer", "product_results", "recommendations", "order_status"}:
+        return {"node_trace": append_node(state, "refine_grounded_answer_with_llm")}
+    result = generate_grounded_answer(
+        message=state.get("message", ""),
+        intent=state.get("intent", "general"),
+        response_type=response_type,
+        current_answer=state.get("answer", ""),
+        product_cards=state.get("product_cards", []),
+        grounding_documents=state.get("grounding_documents", []),
+        order=state.get("grounding_order"),
+        tool_summaries=[tool.response_summary for tool in state.get("tool_calls", [])],
+    )
+    updates: dict[str, Any] = {"node_trace": append_node(state, "refine_grounded_answer_with_llm")}
+    if result.used:
+        updates["answer"] = result.answer
+        grounded, reason = grounding_check_service.is_answer_grounded(
+            answer=result.answer,
+            grounding_documents=state.get("grounding_documents", []),
+        )
+        if not grounded:
+            updates["needs_review"] = True
+            log_event(
+                "agent_grounding_failed",
+                traceId=state.get("trace_id"),
+                sessionId=state.get("session_id"),
+                reason=reason,
+            )
+    elif result.error:
+        updates["needs_review"] = True
+    return updates
 
 
 def format_structured_response(state: GraphState) -> dict[str, Any]:
@@ -227,6 +292,28 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
             "tool_calls": tool_calls,
             "node_trace": append_node(state, "ground_response_in_tool_results"),
         }
+    # Fallback: when the catalog lexical search returns no hits, try the
+    # recommender's CLIP semantic text search. This catches descriptor-heavy
+    # queries like "lightweight summer shirt for hiking".
+    if result.status == "empty_result" and query:
+        semantic, tool_calls = call_tool(
+            tool_calls,
+            "recommend.by_text",
+            {"query": query},
+            lambda: tools.recommendation.by_text(query=query, limit=4),
+            trace_id=state.get("trace_id"),
+            session_id=state.get("session_id"),
+            user_id=state.get("user_id"),
+        )
+        if semantic.status == "success" and semantic.data:
+            return {
+                "answer": "I found related products you might like.",
+                "response_type": "product_results",
+                "product_cards": semantic.data,
+                "last_selected_product": semantic.data[0],
+                "tool_calls": tool_calls,
+                "node_trace": append_node(state, "ground_response_in_tool_results"),
+            }
     return _fallback_from_tool(state, result, tool_calls, "I could not find a matching product.")
 
 
@@ -274,11 +361,12 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
             "tool_calls": tool_calls,
             "node_trace": append_node(state, "ground_response_in_tool_results"),
         }
+    fallback_reason = f"{tool_name} returned {result.status}"
     fallback_result, tool_calls = call_tool(
         tool_calls,
         "catalog.search",
-        {"query": "", "filters": {"in_stock": True}, "fallbackFor": tool_name},
-        lambda: tools.catalog.search(query="", filters={"in_stock": True}),
+        {"query": "jacket", "filters": {"in_stock": True}, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
+        lambda: tools.catalog.search(query="jacket", filters={"in_stock": True}),
         trace_id=state.get("trace_id"),
         session_id=state.get("session_id"),
         user_id=state.get("user_id"),
@@ -346,6 +434,7 @@ def _handle_cart_action(state: GraphState) -> dict[str, Any]:
 
     action_type = slots.get("action_type", "add")
     quantity = int(slots.get("quantity", 1))
+    selected_variant_id = slots.get("variant_id") or product.variant_id
     if action_type == "remove":
         draft_result, tool_calls = call_tool(
             tool_calls,
@@ -372,8 +461,8 @@ def _handle_cart_action(state: GraphState) -> dict[str, Any]:
         draft_result, tool_calls = call_tool(
             tool_calls,
             "cart.add_draft",
-            {"productId": product.product_id, "variantId": slots.get("variant_id"), "quantity": quantity},
-            lambda: tools.cart.add_draft(product_id=product.product_id, variant_id=slots.get("variant_id"), quantity=quantity),
+            {"productId": product.product_id, "variantId": selected_variant_id, "quantity": quantity},
+            lambda: tools.cart.add_draft(product_id=product.product_id, variant_id=selected_variant_id, quantity=quantity),
             trace_id=state.get("trace_id"),
             session_id=state.get("session_id"),
             user_id=state.get("user_id"),
@@ -432,6 +521,7 @@ def _handle_order_status(state: GraphState) -> dict[str, Any]:
         "answer": answer,
         "response_type": "order_status",
         "last_selected_order": order,
+        "grounding_order": order,
         "tool_calls": tool_calls,
         "node_trace": append_node(state, "ground_response_in_tool_results"),
     }
@@ -461,23 +551,68 @@ def _handle_support_handoff(state: GraphState) -> dict[str, Any]:
 
 
 def _handle_policy_or_faq(state: GraphState) -> dict[str, Any]:
+    retrieval_query = state.get("rewritten_query") or state["message"]
     result, tool_calls = call_tool(
         state.get("tool_calls", []),
         "knowledge.retrieve",
-        {"query": state["message"]},
-        lambda: tools.knowledge.retrieve(query=state["message"]),
+        {"query": retrieval_query, "limit": 3},
+        lambda: tools.knowledge.retrieve(query=retrieval_query, limit=3),
         trace_id=state.get("trace_id"),
         session_id=state.get("session_id"),
         user_id=state.get("user_id"),
     )
+    if result.status == "empty_result":
+        topics = _available_knowledge_titles()
+        suggestion_text = ", ".join(topics) if topics else ""
+        answer = (
+            f"I could not find a matching policy answer. Try one of: {suggestion_text}."
+            if suggestion_text
+            else "I could not find a matching policy answer."
+        )
+        return {
+            "answer": answer,
+            "response_type": "empty_result",
+            "suggested_topics": topics,
+            "tool_calls": tool_calls,
+            "fallback_count": state.get("fallback_count", 0) + 1,
+            "node_trace": append_node(state, "ground_response_in_tool_results"),
+        }
     if result.status != "success":
         return _fallback_from_tool(state, result, tool_calls, "I could not find a matching policy answer.")
     return {
         "answer": result.data[0]["body"],
         "response_type": "answer",
+        "grounding_documents": result.data,
+        "citations": _citations_from_grounding(result.data),
         "tool_calls": tool_calls,
         "node_trace": append_node(state, "ground_response_in_tool_results"),
     }
+
+
+def _available_knowledge_titles() -> list[str]:
+    from app.knowledge.loader import load_knowledge_documents
+
+    try:
+        return [doc.title for doc in load_knowledge_documents()][:7]
+    except Exception:  # pragma: no cover - defensive
+        return []
+
+
+def _citations_from_grounding(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    citations: list[dict[str, Any]] = []
+    for doc in documents[:3]:
+        body = str(doc.get("body", ""))
+        snippet = " ".join(body.split())[:240]
+        citations.append(
+            {
+                "sourceId": doc.get("sourceId", "unknown"),
+                "sourceType": doc.get("sourceType", "unknown"),
+                "title": doc.get("title", ""),
+                "snippet": snippet,
+                "score": doc.get("score"),
+            }
+        )
+    return citations
 
 
 def _fallback_from_tool(

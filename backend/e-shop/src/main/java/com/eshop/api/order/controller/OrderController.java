@@ -69,6 +69,17 @@ public class OrderController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/by-number/{orderNumber}")
+    public ResponseEntity<OrderSummaryResponse> getOrderByNumber(
+        Authentication authentication,
+        @PathVariable("orderNumber") String orderNumber
+    ) {
+        String email = resolveEmail(authentication);
+        return orderHistoryService.findOrderByNumber(email, orderNumber)
+            .map(ResponseEntity::ok)
+            .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @PostMapping("/{orderId}/confirm-fulfillment")
     public ResponseEntity<OrderStatusResponse> confirmFulfillment(
         Authentication authentication,

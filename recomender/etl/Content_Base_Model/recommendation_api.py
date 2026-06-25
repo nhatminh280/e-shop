@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field, field_validator
 from .qdrant_vector_store import QdrantConfig, QdrantVectorStore
 from .scheduler_api import get_scheduler_monitor
 
+from functools import lru_cache
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +54,46 @@ class RecommendationResponse(BaseModel):
     response_time_ms: float
     from_cache: bool = False
     total_results: int
+
+
+class TextSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=512)
+    k: int = Field(default=10, ge=1, le=50)
+    min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @field_validator("query")
+    @classmethod
+    def strip_query(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("query cannot be blank")
+        return stripped
+
+
+class TextSearchResponse(BaseModel):
+    query: str
+    recommendations: list[RecommendationItem]
+    response_time_ms: float
+    total_results: int
+
+
+@lru_cache(maxsize=1)
+def _clip_text_encoder():
+    """Lazy CLIP loader — only pays the model-load cost on first text search.
+
+    The recommender Docker image copies `etl/` into `/app/`, so
+    `clip_embedding_pipeline` lives at the top of the import path (not inside
+    a package). Use absolute import to handle that layout.
+    """
+    try:
+        from clip_embedding_pipeline import CLIPEmbedder  # type: ignore[import-not-found]
+    except ImportError:
+        # Fallback when run from a Python checkout where `etl/` is still the
+        # package root.
+        from etl.clip_embedding_pipeline import CLIPEmbedder  # type: ignore[import-not-found]
+
+    model_name = os.getenv("CLIP_TEXT_MODEL", "ViT-B/32").strip()
+    return CLIPEmbedder(model_name=model_name)
 
 
 class BatchRecommendationRequest(BaseModel):
@@ -317,6 +359,54 @@ async def get_recommendations(
 
     cache.set(variant_id, k, response_data)
     return RecommendationResponse(**response_data)
+
+
+@eshop.post("/recommend/by-text", response_model=TextSearchResponse)
+async def get_recommendations_by_text(request: TextSearchRequest):
+    """Semantic product search for descriptor-heavy queries with no anchor product.
+    Encodes the query with CLIP's text head and searches the variant Qdrant collection.
+    """
+    start_time = time.time()
+    store = _store()
+
+    try:
+        encoder = _clip_text_encoder()
+    except Exception as exc:
+        logger.exception("Failed to load CLIP text encoder")
+        raise HTTPException(status_code=503, detail="text_encoder_unavailable") from exc
+
+    vector = encoder.encode_text(request.query)
+    if vector is None:
+        raise HTTPException(status_code=503, detail="text_encoding_failed")
+
+    try:
+        rec_ids, rec_scores = store.search_by_vector(list(vector), request.k * 3)
+    except Exception:
+        logger.exception("Qdrant search-by-vector failed")
+        raise HTTPException(status_code=500, detail="search_engine_error")
+
+    seen_products: set[str] = set()
+    items: list[RecommendationItem] = []
+    for variant_id, score in zip(rec_ids, rec_scores):
+        if score < request.min_similarity:
+            continue
+        metadata = store.product_metadata.get(variant_id, {})
+        product_id = str(metadata.get("product_id") or variant_id)
+        if product_id in seen_products:
+            # Collapse variants of the same product so we do not return five
+            # color variants of the same jacket.
+            continue
+        seen_products.add(product_id)
+        items.append(_recommendation_item(variant_id, score, metadata))
+        if len(items) >= request.k:
+            break
+
+    return TextSearchResponse(
+        query=request.query,
+        recommendations=items,
+        response_time_ms=round((time.time() - start_time) * 1000, 2),
+        total_results=len(items),
+    )
 
 
 @eshop.post("/recommend/batch", response_model=dict[str, Any])

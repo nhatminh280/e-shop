@@ -5,9 +5,10 @@ from typing import Any
 
 
 class BackendClientError(Exception):
-    def __init__(self, message: str, status: str = "backend_error") -> None:
+    def __init__(self, message: str, status: str = "backend_error", status_code: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.status_code = status_code
 
 
 class BackendClient(ABC):
@@ -41,6 +42,19 @@ class BackendClient(ABC):
         limit: int = 4,
     ) -> list[dict[str, Any]]:
         raise NotImplementedError
+
+    def recommend_by_text(
+        self,
+        query: str,
+        limit: int = 4,
+        min_similarity: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Semantic product search via the recommender's CLIP text head.
+
+        Default returns empty so a mock backend does not need to implement it.
+        Override in concrete clients that talk to the live recommender.
+        """
+        return []
 
     @abstractmethod
     def cart_get(self, user_id: str | None) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from app.schemas import AgentChatRequest, AgentChatResponse
 from app.services.env_service import load_local_env
 from app.services.logging_service import configure_logging
 from app.services.metrics_service import metrics_service
+from app.services.trace_context_service import reset_auth_token, set_auth_token
 
 
 load_local_env()
@@ -34,4 +35,12 @@ def chat_endpoint(request: AgentChatRequest, http_request: Request) -> AgentChat
     request.request_id = request.request_id or http_request.headers.get("x-request-id")
     request.traceparent = request.traceparent or http_request.headers.get("traceparent")
     request.session_id = request.session_id or http_request.headers.get("x-session-id") or request.session_id
-    return run_agent(request)
+    # Forward the storefront's Authorization header to backend tool calls
+    # (catalog / order / cart) so chat-agent acts on behalf of the signed-in user.
+    bearer = http_request.headers.get("Authorization") or ""
+    token_value = bearer.split(" ", 1)[1].strip() if bearer.lower().startswith("bearer ") else None
+    auth_handle = set_auth_token(token_value)
+    try:
+        return run_agent(request)
+    finally:
+        reset_auth_token(auth_handle)

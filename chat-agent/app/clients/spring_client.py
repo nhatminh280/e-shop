@@ -3,14 +3,17 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
+from functools import cached_property
 from threading import Lock
 from typing import Any
 
 import httpx
 
+from app.knowledge import LocalHybridKnowledgeIndex, LocalVectorKnowledgeIndex, load_policy_faq_records
 from app.services.trace_context_service import get_trace_headers
 
 from .base_client import BackendClient, BackendClientError
+from .mock_backend_client import MockBackendClient
 
 
 class SpringBackendClient(BackendClient):
@@ -38,6 +41,19 @@ class SpringBackendClient(BackendClient):
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self._request("GET", path, params=params)
 
+    def _get_optional_feature(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        fallback_status_codes: set[int] | None = None,
+    ) -> Any | None:
+        return self._request(
+            "GET",
+            path,
+            params=params,
+            fallback_status_codes=fallback_status_codes or {404, 501},
+        )
+
     def _post(self, path: str, payload: dict[str, Any] | None = None) -> Any:
         return self._request("POST", path, json=payload or {})
 
@@ -48,13 +64,21 @@ class SpringBackendClient(BackendClient):
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        fallback_status_codes: set[int] | None = None,
     ) -> Any:
         self._raise_if_circuit_open()
         headers = {"x-agent-client": "chat-agent", **get_trace_headers()}
-        if self.auth_token:
-            headers["Authorization"] = f"Bearer {self.auth_token}"
+        # Per-request auth token forwarded by FastAPI endpoint from the
+        # original storefront Authorization header. Falls back to the
+        # constructor-level token used by tests.
+        from app.services.trace_context_service import get_auth_token
+
+        request_token = get_auth_token() or self.auth_token
+        if request_token:
+            headers["Authorization"] = f"Bearer {request_token}"
 
         last_error: Exception | None = None
+        last_status_code: int | None = None
         for _ in range(self.retries + 1):
             try:
                 with httpx.Client(timeout=self.timeout_seconds) as client:
@@ -62,7 +86,14 @@ class SpringBackendClient(BackendClient):
                 if response.status_code in (401, 403):
                     self._record_circuit_success()
                     raise BackendClientError("backend request unauthorized", status="unauthorized")
-                response.raise_for_status()
+                if fallback_status_codes and response.status_code in fallback_status_codes:
+                    return None
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    last_status_code = response.status_code
+                    continue
                 self._record_circuit_success()
                 return response.json()
             except httpx.TimeoutException as exc:
@@ -74,7 +105,7 @@ class SpringBackendClient(BackendClient):
 
         status = "timeout" if isinstance(last_error, httpx.TimeoutException) else "backend_error"
         self._record_circuit_failure()
-        raise BackendClientError(str(last_error or "backend request failed"), status=status)
+        raise BackendClientError(str(last_error or "backend request failed"), status=status, status_code=last_status_code)
 
     def _raise_if_circuit_open(self) -> None:
         with self._circuit_lock:
@@ -97,11 +128,70 @@ class SpringBackendClient(BackendClient):
                 self._circuit_opened_at = self._clock()
 
     def catalog_search(self, query: str, filters: dict[str, Any] | None = None, limit: int = 4) -> list[dict[str, Any]]:
-        payload = self._get("/api/catalog/products/search", {"q": query, "size": limit, **(filters or {})})
-        return [_normalize_product(product) for product in _extract_list(payload, "products")]
+        # Spring /products/search supports text matching (`q`) but ignores filters.
+        # Spring /products/filter supports strict filters but no text matching.
+        # Strategy: when we have a text query, prefer /search (over-fetch) and
+        # filter client-side by gender / color / size. When we have ONLY filters
+        # (no text), call /filter directly.
+        normalized_filters = _build_filter_params(filters or {})
+        # Drop category — chat-agent normalizes nouns ("shirt") that rarely
+        # match Spring's strict category slugs ("s-s-tops").
+        normalized_filters.pop("category", None)
+        gender_needle = normalized_filters.pop("gender", None)
+        color_needle = normalized_filters.pop("color", None)
+        size_needle = normalized_filters.pop("sizes", None)
+        # Anything remaining (priceMin/priceMax/inStock) we still want server-side.
+        remaining_filters = normalized_filters
+
+        if query:
+            # Over-fetch from /search; we will narrow client-side. 100 is the
+            # Spring /search default cap.
+            params = {"q": query, "size": 100}
+            payload = self._get("/api/catalog/products/search", params)
+            # Spring search matches full phrase. If the user typed "boardshorts
+            # for men" the whole phrase rarely matches a product name. Retry
+            # with stop words stripped so the noun ("boardshorts") still hits.
+            if not _extract_list(payload, "products"):
+                cleaned = _strip_query_stopwords(query)
+                if cleaned and cleaned != query:
+                    payload = self._get("/api/catalog/products/search", {"q": cleaned, "size": 100})
+        elif remaining_filters or gender_needle:
+            params = {"size": 100}
+            if gender_needle:
+                params["gender"] = gender_needle
+            params.update(remaining_filters)
+            payload = self._get("/api/catalog/products/filter", params)
+            gender_needle = None  # already applied server-side
+        else:
+            payload = self._get("/api/catalog/products/search", {"q": "", "size": limit})
+
+        products = [_normalize_product(p) for p in _extract_list(payload, "products")]
+
+        if gender_needle:
+            products = [p for p in products if str(p.get("gender", "")).lower() == gender_needle]
+        if size_needle:
+            wanted = str(size_needle).strip().upper()
+            def _has_size(product: dict[str, Any]) -> bool:
+                sizes = product.get("sizes") or []
+                if not sizes:
+                    return True  # missing data: keep
+                return any(str(s).upper() == wanted for s in sizes)
+            products = [p for p in products if _has_size(p)]
+        if color_needle:
+            needle = str(color_needle).lower()
+            def _color_decision(product: dict[str, Any]) -> bool:
+                color_list = product.get("colors") or []
+                if not color_list:
+                    return True  # missing data: keep
+                haystack = " ".join(str(c).lower() for c in color_list) + " " + str(product.get("name", "")).lower()
+                return needle in haystack
+            products = [p for p in products if _color_decision(p)]
+        return products[:limit]
 
     def catalog_filter(self, filters: dict[str, Any], limit: int = 4) -> list[dict[str, Any]]:
-        payload = self._get("/api/catalog/products/filter", {"size": limit, **filters})
+        params = _build_filter_params(filters)
+        params["size"] = limit
+        payload = self._get("/api/catalog/products/filter", params)
         return [_normalize_product(product) for product in _extract_list(payload, "products")]
 
     def catalog_detail(self, slug: str) -> dict[str, Any] | None:
@@ -135,7 +225,66 @@ class SpringBackendClient(BackendClient):
         recent_product_ids: list[str] | None = None,
         limit: int = 4,
     ) -> list[dict[str, Any]]:
-        return []
+        params = {
+            "userId": user_id,
+            "recentProductIds": recent_product_ids or [],
+            "limit": limit,
+        }
+        payload = self._get_optional_feature(
+            "/api/recommendations/personalized",
+            {key: value for key, value in params.items() if value},
+        )
+        if payload is None:
+            return []
+        return [_normalize_product(product) for product in _extract_list(payload, "products")]
+
+    def recommend_by_text(
+        self,
+        query: str,
+        limit: int = 4,
+        min_similarity: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        """Call the recommender's /recommend/by-text endpoint directly.
+
+        Falls back to an empty list on any failure (recommender down, env not
+        set, etc.) so semantic search is best-effort and never blocks the chat.
+        """
+        base_url = os.getenv("RECOMMENDER_BASE_URL", "").strip()
+        if not base_url:
+            return []
+        try:
+            with httpx.Client(timeout=float(os.getenv("RECOMMENDER_TIMEOUT_SECONDS", "5"))) as client:
+                response = client.post(
+                    f"{base_url.rstrip('/')}/recommend/by-text",
+                    json={"query": query, "k": limit, "min_similarity": min_similarity},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except Exception:  # pragma: no cover - defensive
+            return []
+        # Recommender shape: { recommendations: [{ variant_id, similarity_score, product_name, ... }] }
+        results: list[dict[str, Any]] = []
+        for item in body.get("recommendations", []):
+            if not isinstance(item, dict):
+                continue
+            results.append({
+                "productId": item.get("product_id") or item.get("variant_id"),
+                "variantId": item.get("variant_id"),
+                "name": item.get("product_name") or "",
+                "slug": item.get("slug") or "",
+                "category": item.get("category_name") or "",
+                "gender": item.get("gender") or "",
+                "price": int(item.get("price") or 0),
+                "currency": "VND",
+                "imageUrl": item.get("image_path"),
+                "colors": [],
+                "sizes": [],
+                "inStock": True,
+                "stock": 0,
+                "recommendationScore": float(item.get("similarity_score") or 0),
+                "recommendationReason": "semantic text match",
+            })
+        return results
 
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         payload = self._get("/api/cart")
@@ -156,8 +305,17 @@ class SpringBackendClient(BackendClient):
         return payload if isinstance(payload, dict) else None
 
     def knowledge_retrieve(self, query: str, limit: int = 2) -> list[dict[str, Any]]:
-        payload = self._get("/api/knowledge/search", {"q": query, "limit": limit})
-        return _extract_list(payload, "documents")
+        try:
+            payload = self._get_optional_feature("/api/knowledge/search", {"q": query, "limit": limit}, {404, 501})
+        except BackendClientError:
+            payload = None
+        if payload is not None:
+            documents = _extract_list(payload, "documents")
+            if documents:
+                return documents
+        if os.getenv("KNOWLEDGE_LOCAL_FALLBACK", "true").lower() in {"1", "true", "yes"}:
+            return self._local_knowledge_retrieve(query=query, limit=limit)
+        return []
 
     def support_create(self, payload: dict[str, Any]) -> dict[str, Any]:
         response = self._post("/api/support/conversations", _support_payload(payload))
@@ -170,6 +328,75 @@ class SpringBackendClient(BackendClient):
     def cancel_draft_action(self, draft_action_id: str) -> dict[str, Any]:
         response = self._post(f"/api/chat/actions/{draft_action_id}/cancel")
         return response if isinstance(response, dict) else {}
+
+    @cached_property
+    def _local_mock_client(self) -> MockBackendClient:
+        return MockBackendClient()
+
+    @cached_property
+    def _local_hybrid_knowledge_index(self) -> LocalHybridKnowledgeIndex:
+        return LocalHybridKnowledgeIndex.from_records(load_policy_faq_records())
+
+    @cached_property
+    def _local_vector_knowledge_index(self) -> LocalVectorKnowledgeIndex:
+        return LocalVectorKnowledgeIndex.from_records(load_policy_faq_records())
+
+    def _local_knowledge_retrieve(self, query: str, limit: int) -> list[dict[str, Any]]:
+        if os.getenv("KNOWLEDGE_RETRIEVAL_MODE", "hybrid").lower() == "vector":
+            return self._local_vector_knowledge_index.retrieve(query, limit=limit)
+        return self._local_hybrid_knowledge_index.retrieve(query, limit=limit)
+
+
+_QUERY_STOP_WORDS = {
+    "for", "the", "a", "an", "any", "some", "me", "my", "i", "we", "us",
+    "of", "and", "or", "with", "without", "in", "on", "to", "from",
+    "give", "show", "find", "want", "need", "looking", "look", "please",
+    "men", "man", "male", "women", "woman", "female", "guys", "guy", "ladies", "lady",
+    "blue", "red", "black", "white", "green", "yellow", "pink", "purple", "orange",
+    "gray", "grey", "brown", "navy", "beige", "olive",
+    "xs", "s", "m", "l", "xl", "xxl", "3xl",
+}
+
+
+def _strip_query_stopwords(query: str) -> str:
+    words = [w for w in query.lower().split() if w not in _QUERY_STOP_WORDS]
+    return " ".join(words)
+
+
+_BE_GENDER_MAP = {
+    "men": "mens",
+    "man": "mens",
+    "male": "mens",
+    "women": "womens",
+    "woman": "womens",
+    "female": "womens",
+    "unisex": "unisex",
+    "kids": "kids",
+}
+
+
+def _build_filter_params(filters: dict[str, Any]) -> dict[str, Any]:
+    """Convert chat-agent's normalized filter dict to Spring /products/filter params."""
+    params: dict[str, Any] = {}
+    gender = filters.get("gender")
+    if gender:
+        params["gender"] = _BE_GENDER_MAP.get(str(gender).lower(), str(gender).lower())
+    category = filters.get("category")
+    if category:
+        params["category"] = category
+    color = filters.get("color")
+    if color:
+        params["color"] = color  # Spring accepts repeating ?color=red&color=blue OR single value
+    size = filters.get("size")
+    if size:
+        params["sizes"] = size
+    if filters.get("in_stock") is not None:
+        params["inStock"] = str(bool(filters["in_stock"])).lower()
+    if filters.get("price_min") is not None:
+        params["priceMin"] = filters["price_min"]
+    if filters.get("price_max") is not None:
+        params["priceMax"] = filters["price_max"]
+    return params
 
 
 def _extract_list(payload: Any, preferred_key: str) -> list[dict[str, Any]]:
@@ -192,6 +419,9 @@ def _normalize_product(product: dict[str, Any]) -> dict[str, Any]:
     normalized["name"] = product.get("name") or product.get("productName") or ""
     normalized["slug"] = product.get("slug") or product.get("productSlug") or ""
     normalized["category"] = _category_value(product.get("category"))
+    if normalized["category"] == "uncategorized" and product.get("categoryName"):
+        normalized["category"] = str(product["categoryName"])
+    normalized["gender"] = product.get("gender") or product.get("targetGender") or "unisex"
     normalized["price"] = product.get("price") or product.get("basePrice") or (first_variant or {}).get("price") or 0
     normalized["currency"] = product.get("currency") or (first_variant or {}).get("currency") or "VND"
     normalized["imageUrl"] = product.get("imageUrl") or _image_url(product)
@@ -199,8 +429,13 @@ def _normalize_product(product: dict[str, Any]) -> dict[str, Any]:
     normalized["sizes"] = product.get("sizes") if isinstance(product.get("sizes"), list) else _variant_values(variants, "size")
     normalized["stock"] = product.get("stock") if product.get("stock") is not None else _stock(variants)
     normalized["inStock"] = product.get("inStock") if product.get("inStock") is not None else _in_stock(product, variants)
+    if product.get("similarityScore") is not None and not variants and product.get("stock") is None:
+        normalized["stock"] = 1
+        normalized["inStock"] = True
     if product.get("similarityScore") is not None and normalized.get("recommendationScore") is None:
         normalized["recommendationScore"] = product["similarityScore"]
+    if normalized.get("recommendationReason") is None and product.get("similarityScore") is not None:
+        normalized["recommendationReason"] = "similar product from recommender"
     return normalized
 
 

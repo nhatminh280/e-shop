@@ -11,6 +11,10 @@ from typing import Any
 # still opt into trace upload with an explicit shell env override.
 os.environ.setdefault("LANGSMITH_TRACING", "false")
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
+# Eval tests routing/tool/grounding (deterministic). LLM rewriting is
+# non-deterministic and breaks substring assertions on answerContains. Force
+# LLM off here; production runtime stays LLM_ENABLED=true via .env / compose.
+os.environ["LLM_ENABLED"] = "false"
 
 from app.main import chat
 from app.schemas import AgentChatRequest

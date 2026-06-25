@@ -40,6 +40,17 @@ public class ChatAgentClient {
         String requestId,
         String traceparent
     ) {
+        return chat(request, authorization, traceId, requestId, traceparent, request != null ? request.sessionId() : null);
+    }
+
+    public AgentChatResponse chat(
+        AgentChatRequest request,
+        String authorization,
+        String traceId,
+        String requestId,
+        String traceparent,
+        String sessionId
+    ) {
         if (!properties.isEnabled()) {
             throw new ChatAgentUnavailableException("Chat agent bridge is disabled");
         }
@@ -59,6 +70,7 @@ public class ChatAgentClient {
         copyHeader(headers, "x-trace-id", traceId);
         copyHeader(headers, "x-request-id", requestId);
         copyHeader(headers, "traceparent", traceparent);
+        copyHeader(headers, "x-session-id", sessionId);
 
         try {
             ResponseEntity<AgentChatResponse> response = chatAgentRestTemplate.postForEntity(

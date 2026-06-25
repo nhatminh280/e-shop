@@ -47,6 +47,7 @@ class CamelModel(BaseModel):
 
 class ProductCard(CamelModel):
     product_id: str = Field(alias="productId")
+    variant_id: str | None = Field(default=None, alias="variantId")
     name: str
     slug: str
     category: str
@@ -100,6 +101,14 @@ class ToolCallTrace(CamelModel):
     error_message: str | None = Field(default=None, alias="errorMessage")
 
 
+class Citation(CamelModel):
+    source_id: str = Field(alias="sourceId")
+    source_type: str = Field(alias="sourceType")
+    title: str
+    snippet: str
+    score: float | None = None
+
+
 class AgentChatRequest(CamelModel):
     message: str = Field(..., min_length=1)
     session_id: str = Field(default="demo", min_length=1, alias="sessionId")
@@ -131,6 +140,7 @@ class AgentChatResponse(CamelModel):
     tool_calls: list[ToolCallTrace] = Field(default_factory=list, alias="toolCalls")
     node_traces: list[NodeTrace] = Field(default_factory=list, alias="nodeTraces")
     slots: dict[str, Any] = Field(default_factory=dict)
+    citations: list[Citation] = Field(default_factory=list)
     intent_confidence: float = Field(default=0, alias="intentConfidence")
     routing_confidence: float = Field(default=0, alias="routingConfidence")
     needs_review: bool = Field(default=False, alias="needsReview")
@@ -159,6 +169,7 @@ class AgentState(CamelModel):
     needs_confirmation: bool = Field(default=False, alias="needsConfirmation")
     tool_calls: list[ToolCallTrace] = Field(default_factory=list, alias="toolCalls")
     node_trace: list[NodeTrace] = Field(default_factory=list, alias="nodeTrace")
+    citations: list[Citation] = Field(default_factory=list)
     last_selected_product: ProductCard | None = Field(default=None, alias="lastSelectedProduct")
     last_selected_order: dict[str, Any] | None = Field(default=None, alias="lastSelectedOrder")
     latency_ms: float = Field(default=0, alias="latencyMs")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.clients import MockBackendClient
+from app.clients.mock_backend_client import MockBackendClient
 from app.schemas import KnowledgeSearchResult
 from app.tools.knowledge_tool import KnowledgeTool, _is_confident_match
 
@@ -89,14 +89,26 @@ def test_mock_knowledge_results_include_keyword_retrieval_metadata() -> None:
     assert "shipping" in result.data[0]["matchedTokens"]
 
 
-def test_mock_knowledge_retrieves_product_material_and_care_knowledge() -> None:
-    result = KnowledgeTool(MockBackendClient()).retrieve("torrentshell jacket waterproof care")
+def test_mock_knowledge_can_use_local_vector_mode(monkeypatch) -> None:
+    monkeypatch.setenv("KNOWLEDGE_RETRIEVAL_MODE", "vector")
+
+    result = KnowledgeTool(MockBackendClient()).retrieve("shipping fees standard domestic")
 
     assert result.status == "success"
-    assert result.data[0]["sourceId"] == "product-p003"
-    assert result.data[0]["sourceType"] == "product"
-    assert result.data[0]["scoreType"] == "hybrid"
-    assert "Patagonia Torrentshell 3L Jacket" in result.data[0]["body"]
+    assert result.data[0]["sourceId"] == "shipping"
+    assert result.data[0]["scoreType"] == "vector"
+    assert result.data[0]["score"] >= 0.7
+
+
+def test_mock_knowledge_does_not_return_product_records() -> None:
+    # Product knowledge belongs to the recommender (product_variants_v1, CLIP).
+    # The chat-agent knowledge index must contain policy/FAQ only.
+    result = KnowledgeTool(MockBackendClient()).retrieve("torrentshell jacket waterproof care")
+
+    if result.status == "success":
+        for doc in result.data:
+            assert doc.get("sourceType") != "product"
+            assert not str(doc.get("sourceId", "")).startswith("product-")
 
 
 def test_vector_knowledge_payload_passes_confidence_threshold() -> None:
@@ -108,6 +120,17 @@ def test_vector_knowledge_payload_passes_confidence_threshold() -> None:
     assert result.data[0]["scoreType"] == "vector"
     assert "sourceIds=shipping" in result.summary
     assert "scoreTypes=vector" in result.summary
+
+
+def test_knowledge_tool_summary_includes_source_metadata() -> None:
+    tool = KnowledgeTool(VectorKnowledgeClient())
+
+    result = tool.retrieve("shipping policy")
+
+    assert result.status == "success"
+    assert "sourceIds=shipping" in result.summary
+    assert "scores=" in result.summary
+    assert "scoreTypes=" in result.summary
 
 
 def test_invalid_knowledge_payload_returns_validation_error() -> None:

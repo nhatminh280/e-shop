@@ -15,6 +15,8 @@ from app.graph.nodes import (
     load_session_context,
     normalize_message,
     output_guardrails,
+    refine_grounded_answer_with_llm,
+    rewrite_query_for_retrieval,
     route_intent,
 )
 from app.graph.state import GraphState
@@ -40,7 +42,9 @@ def build_graph():
     builder.add_node("extract_slots", trace_node("extract_slots", extract_slots))
     builder.add_node("route_intent", trace_node("route_intent", route_intent))
     builder.add_node("build_clarification_response", trace_node("build_clarification_response", build_clarification_response))
+    builder.add_node("rewrite_query_for_retrieval", trace_node("rewrite_query_for_retrieval", rewrite_query_for_retrieval))
     builder.add_node("ground_response_in_tool_results", trace_node("ground_response_in_tool_results", ground_response_in_tool_results))
+    builder.add_node("refine_grounded_answer_with_llm", trace_node("refine_grounded_answer_with_llm", refine_grounded_answer_with_llm))
     builder.add_node("output_guardrails", trace_node("output_guardrails", output_guardrails))
     builder.add_node("format_structured_response", trace_node("format_structured_response", format_structured_response))
 
@@ -55,11 +59,13 @@ def build_graph():
         _next_after_route,
         {
             "clarification": "build_clarification_response",
-            "tool": "ground_response_in_tool_results",
+            "tool": "rewrite_query_for_retrieval",
         },
     )
     builder.add_edge("build_clarification_response", "output_guardrails")
-    builder.add_edge("ground_response_in_tool_results", "output_guardrails")
+    builder.add_edge("rewrite_query_for_retrieval", "ground_response_in_tool_results")
+    builder.add_edge("ground_response_in_tool_results", "refine_grounded_answer_with_llm")
+    builder.add_edge("refine_grounded_answer_with_llm", "output_guardrails")
     builder.add_edge("output_guardrails", "format_structured_response")
     builder.add_edge("format_structured_response", END)
     return builder.compile()
@@ -103,6 +109,8 @@ def run_agent(request: AgentChatRequest) -> AgentChatResponse:
                     "product_cards": [],
                     "last_selected_product": None,
                     "last_selected_order": None,
+                    "grounding_documents": [],
+                    "grounding_order": None,
                     "draft_action": None,
                     "needs_confirmation": False,
                     "node_trace": [],
@@ -124,6 +132,7 @@ def run_agent(request: AgentChatRequest) -> AgentChatResponse:
         toolCalls=result.get("tool_calls", []),
         nodeTraces=result.get("node_trace", []),
         slots=result.get("slots", {}),
+        citations=result.get("citations", []),
         intentConfidence=result.get("intent_confidence", 0.0),
         routingConfidence=result.get("routing_confidence", 0.0),
         needsReview=result.get("needs_review", False),

@@ -1,0 +1,61 @@
+# Production stack for hosting the chat-agent + its Qdrant collection on a
+# single EC2 instance. The Spring Boot backend is NOT included here — the
+# chat-agent reaches it through BACKEND_BASE_URL (override per environment).
+#
+# Usage on EC2:
+#   cd ~/e-shop/chat-agent
+#   docker compose -f docker-compose.aws.yml up -d
+#
+# Env vars expected on the EC2 (put them in ~/.env or systemd unit):
+#   OPENAI_API_KEY=sk-...
+#   LLM_MODEL=gpt-4o-mini
+#   BACKEND_BASE_URL=https://your-backend-host:8080   (or http for now)
+#   RECOMMENDER_BASE_URL=http://18.143.45.118:8000
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  chat-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: e-shop-chat-agent:cpu
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    environment:
+      MOCK_BACKEND: "false"
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://host.docker.internal:8080}
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-3}
+      BACKEND_RETRIES: ${BACKEND_RETRIES:-1}
+      BACKEND_CIRCUIT_FAILURE_THRESHOLD: 3
+      BACKEND_CIRCUIT_COOLDOWN_SECONDS: 10
+      RECOMMENDER_BASE_URL: ${RECOMMENDER_BASE_URL:-http://18.143.45.118:8000}
+      RECOMMENDER_TIMEOUT_SECONDS: 5
+      KNOWLEDGE_RETRIEVAL_MODE: ${KNOWLEDGE_RETRIEVAL_MODE:-qdrant}
+      KNOWLEDGE_QDRANT_COLLECTION: ${KNOWLEDGE_QDRANT_COLLECTION:-knowledge_documents_v1}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      LLM_ENABLED: ${LLM_ENABLED:-true}
+      LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      LLM_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY}}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TIMEOUT_SECONDS: 8
+      CHAT_AGENT_JSON_LOGS: "true"
+      CHAT_AGENT_LOG_LEVEL: INFO
+      MIN_VECTOR_SCORE: ${MIN_VECTOR_SCORE:-0.4}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8010:8010"
+
+volumes:
+  qdrant_storage:

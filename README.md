@@ -155,6 +155,39 @@ cd backend/e-shop
 ./mvnw test
 ```
 
+Run the chatbot gateway smoke check against a live backend + chat-agent stack:
+
+```bash
+chmod +x scripts/chatbot-integration-smoke.sh
+API_BASE_URL=http://127.0.0.1:8080 \
+CHAT_AGENT_URL=http://127.0.0.1:8010 \
+./scripts/chatbot-integration-smoke.sh
+```
+
+What it verifies:
+
+- Spring Boot `/actuator/health` is `UP`
+- optional Python `chat-agent` `/agent/health` is `ok`
+- demo customer login returns a JWT token
+- `/api/chat/messages` returns a structured chatbot response with trace propagation
+- `/api/chat/sessions/{sessionId}/messages` contains persisted `USER` and `ASSISTANT` messages for the same trace
+
+The script defaults to the seeded demo user `demo.customer@eshop.local` / `123456`. Override `CHAT_EMAIL`, `CHAT_PASSWORD`, `CHAT_MESSAGE`, or `CHECK_AGENT_HEALTH=false` if needed.
+
+To also verify the cart draft confirmation and cancellation flow through `/api/chat/actions/*`, enable:
+
+```bash
+CHECK_DRAFT_FLOW=true ./scripts/chatbot-integration-smoke.sh
+```
+
+That extended mode:
+
+- sends a follow-up add-to-cart message in the same chat session
+- confirms one `cart.add` draft and checks persisted `action_result` history
+- opens a second session, creates another `cart.add` draft, cancels it, and checks persisted `action_result` history
+- confirms one `support.handoff` draft and checks persisted `action_result` history
+- opens a second support session, cancels the `support.handoff` draft, and checks persisted `action_result` history
+
 React apps rely on unit/component tests you add (Jest, Vitest, etc.); configure them under each package.
 
 Stop the test database when done:
