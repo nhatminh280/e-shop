@@ -100,14 +100,15 @@ def test_mock_knowledge_can_use_local_vector_mode(monkeypatch) -> None:
     assert result.data[0]["score"] >= 0.7
 
 
-def test_mock_knowledge_retrieves_product_material_and_care_knowledge() -> None:
+def test_mock_knowledge_does_not_return_product_records() -> None:
+    # Product knowledge belongs to the recommender (product_variants_v1, CLIP).
+    # The chat-agent knowledge index must contain policy/FAQ only.
     result = KnowledgeTool(MockBackendClient()).retrieve("torrentshell jacket waterproof care")
 
-    assert result.status == "success"
-    assert result.data[0]["sourceId"] == "product-p003"
-    assert result.data[0]["sourceType"] == "product"
-    assert result.data[0]["scoreType"] == "hybrid"
-    assert "Patagonia Torrentshell 3L Jacket" in result.data[0]["body"]
+    if result.status == "success":
+        for doc in result.data:
+            assert doc.get("sourceType") != "product"
+            assert not str(doc.get("sourceId", "")).startswith("product-")
 
 
 def test_vector_knowledge_payload_passes_confidence_threshold() -> None:

@@ -407,7 +407,11 @@ def test_llm_refinement_can_rewrite_grounded_read_only_answers(monkeypatch: pyte
     assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
 
 
-def test_product_knowledge_question_uses_rag_source() -> None:
+def test_product_knowledge_question_returns_empty_result_with_topics() -> None:
+    # Product knowledge lives in the recommender (product_variants_v1, CLIP),
+    # not in chat-agent's knowledge_documents_v1. A FAQ-style product question
+    # routed to policy_or_faq must surface no match and suggest the FAQ topics
+    # we actually own, instead of returning stale product knowledge.
     response = chat(
         AgentChatRequest(
             sessionId="product-knowledge-source",
@@ -417,10 +421,9 @@ def test_product_knowledge_question_uses_rag_source() -> None:
     body = response.model_dump(by_alias=True)
 
     assert body["intent"] == "policy_or_faq"
-    assert body["responseType"] == "answer"
+    assert body["responseType"] == "empty_result"
     assert body["toolCalls"][0]["toolName"] == "knowledge.retrieve"
-    assert "sourceIds=product-p003" in body["toolCalls"][0]["responseSummary"]
-    assert "Patagonia Torrentshell 3L Jacket" in body["answer"]
+    assert "Try one of" in body["answer"]
 
 
 def test_low_confidence_policy_retrieval_falls_back() -> None:

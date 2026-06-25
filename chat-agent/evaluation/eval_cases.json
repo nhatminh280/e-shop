@@ -250,12 +250,11 @@
     "message": "is the torrentshell jacket waterproof and how do i care for it",
     "expected": {
       "intent": "policy_or_faq",
-      "responseType": "answer",
+      "responseType": "empty_result",
       "requiredSlots": {},
       "toolCalls": ["knowledge.retrieve"],
       "requiresConfirmation": false,
-      "knowledgeSourceId": "product-p003",
-      "answerContains": "Patagonia Torrentshell 3L Jacket is positioned as a waterproof shell product"
+      "answerContains": "Try one of"
     }
   },
   {
