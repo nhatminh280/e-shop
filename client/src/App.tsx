@@ -16,6 +16,7 @@ import NotFound from "./pages/notFoundPages";
 import ActivateAccount from "./pages/ActivateAccount";
 import SupportChat from "./pages/SupportChat";
 import MyProfile from "./pages/MyProfile";
+import AiChatWidget from "./components/aiChat/AiChatWidget";
 function AppContent() {
   const location = useLocation();
   const isContactPage = location.pathname === "/contact";
@@ -39,6 +40,7 @@ function AppContent() {
         <Route path="*" element={<NotFound />} />
       </Routes>
       {!isContactPage && <Footer />}
+      {!isContactPage && <AiChatWidget />}
     </div>
   );
 }
