@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any
 
 import httpx
 
 from app.schemas import Intent
 from app.services.llm_service import llm_enabled
+
+
+_LLM_INTENT_CACHE_SIZE = int(os.getenv("LLM_INTENT_CACHE_SIZE", "1024"))
 
 
 VALID_INTENTS: tuple[Intent, ...] = (
@@ -64,13 +68,18 @@ def classify_intent_with_llm(message: str) -> Intent | None:
     if not llm_enabled() or not message.strip():
         return None
     cleaned = _normalize_for_llm(message)
+    return _classify_cached(cleaned)
+
+
+@lru_cache(maxsize=_LLM_INTENT_CACHE_SIZE)
+def _classify_cached(cleaned_message: str) -> Intent | None:
     payload: dict[str, Any] = {
         "model": os.getenv("LLM_INTENT_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")),
         "temperature": 0.0,
         "max_tokens": 12,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": cleaned},
+            {"role": "user", "content": cleaned_message},
         ],
     }
     try:
@@ -85,6 +94,11 @@ def classify_intent_with_llm(message: str) -> Intent | None:
     if candidate in VALID_INTENTS:
         return candidate  # type: ignore[return-value]
     return None
+
+
+def clear_intent_cache() -> None:
+    """Clear the LLM intent cache. Useful for tests."""
+    _classify_cached.cache_clear()
 
 
 def _extract_answer(body: dict[str, Any]) -> str:

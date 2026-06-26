@@ -37,6 +37,11 @@ SPECIALIZED_INTENT_CONFIDENCE = CONFIDENCE_HIGH
 RECOMMENDATION_OR_POLICY_INTENT_CONFIDENCE = CONFIDENCE_MEDIUM
 DEFAULT_ROUTE_CONFIDENCE = CONFIDENCE_MEDIUM
 
+# Cost-saving thresholds: when the cheap classifier/retrieval is already this
+# confident, skip the expensive LLM follow-up call.
+SKIP_LLM_INTENT_RULE_CONFIDENCE = CONFIDENCE_MEDIUM
+SKIP_LLM_GROUNDING_SCORE = CONFIDENCE_HIGH
+
 
 def append_node(state: GraphState, node: str):
     return [*state.get("node_trace", [])]
@@ -99,8 +104,18 @@ def classify_intent(state: GraphState) -> dict[str, Any]:
         }
     normalized = state.get("normalized_message", "")
     original = state.get("message", "")
-    # Prefer LLM intent classification (handles paraphrasing, typos, Vietnamese,
-    # mixed-language). Falls back to keyword rules when LLM is disabled or fails.
+    # Try the keyword rule first — instant and free. When the rule already
+    # classifies the message with high confidence (clear keyword match), skip
+    # the LLM call to save cost. Only fall back to LLM for ambiguous/general
+    # messages where paraphrasing or typos might confuse the rule.
+    rule_intent = classify_intent_rule(normalized)
+    rule_confidence = _intent_confidence(rule_intent, normalized)
+    if rule_intent != "general" and rule_confidence >= SKIP_LLM_INTENT_RULE_CONFIDENCE:
+        return {
+            "intent": rule_intent,
+            "intent_confidence": rule_confidence,
+            "node_trace": append_node(state, f"classify_intent:{rule_intent}:rule"),
+        }
     llm_intent = classify_intent_with_llm(original or normalized)
     if llm_intent is not None:
         return {
@@ -108,12 +123,10 @@ def classify_intent(state: GraphState) -> dict[str, Any]:
             "intent_confidence": CONFIDENCE_HIGH,
             "node_trace": append_node(state, f"classify_intent:{llm_intent}:llm"),
         }
-    intent = classify_intent_rule(normalized)
-    confidence = _intent_confidence(intent, normalized)
     return {
-        "intent": intent,
-        "intent_confidence": confidence,
-        "node_trace": append_node(state, f"classify_intent:{intent}"),
+        "intent": rule_intent,
+        "intent_confidence": rule_confidence,
+        "node_trace": append_node(state, f"classify_intent:{rule_intent}"),
     }
 
 
@@ -237,18 +250,26 @@ def refine_grounded_answer_with_llm(state: GraphState) -> dict[str, Any]:
     updates: dict[str, Any] = {"node_trace": append_node(state, "refine_grounded_answer_with_llm")}
     if result.used:
         updates["answer"] = result.answer
-        grounded, reason = grounding_check_service.is_answer_grounded(
-            answer=result.answer,
-            grounding_documents=state.get("grounding_documents", []),
+        grounding_documents = state.get("grounding_documents", [])
+        # Skip the LLM grounding check when retrieval was very confident — the
+        # answer is almost certainly faithful and the verifier call is wasted spend.
+        max_score = max(
+            (float(doc.get("score") or 0.0) for doc in grounding_documents),
+            default=0.0,
         )
-        if not grounded:
-            updates["needs_review"] = True
-            log_event(
-                "agent_grounding_failed",
-                traceId=state.get("trace_id"),
-                sessionId=state.get("session_id"),
-                reason=reason,
+        if max_score < SKIP_LLM_GROUNDING_SCORE:
+            grounded, reason = grounding_check_service.is_answer_grounded(
+                answer=result.answer,
+                grounding_documents=grounding_documents,
             )
+            if not grounded:
+                updates["needs_review"] = True
+                log_event(
+                    "agent_grounding_failed",
+                    traceId=state.get("trace_id"),
+                    sessionId=state.get("session_id"),
+                    reason=reason,
+                )
     elif result.error:
         updates["needs_review"] = True
     return updates
