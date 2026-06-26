@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, Response
 
 from app.graph import run_agent
 from app.schemas import AgentChatRequest, AgentChatResponse
-from app.services import response_cache
+from app.services import memory_service, response_cache
 from app.services.env_service import load_local_env
 from app.services.logging_service import configure_logging, log_event
 from app.services.metrics_service import metrics_service
@@ -13,7 +15,20 @@ from app.services.trace_context_service import reset_auth_token, set_auth_token
 
 load_local_env()
 configure_logging()
-app = FastAPI(title="E-Shop AI Chat Agent", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log_event("chat_agent_startup", version="0.1.0")
+    yield
+    log_event(
+        "chat_agent_shutdown",
+        response_cache_size=response_cache.size(),
+        session_memory_size=memory_service.size(),
+    )
+
+
+app = FastAPI(title="E-Shop AI Chat Agent", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/agent/health")
@@ -24,6 +39,12 @@ def health() -> dict[str, str]:
 @app.get("/agent/metrics")
 def metrics() -> Response:
     return Response(content=metrics_service.render_prometheus(), media_type="text/plain; version=0.0.4")
+
+
+def _extract_bearer_token(header_value: str | None) -> str | None:
+    if not header_value or not header_value.lower().startswith("bearer "):
+        return None
+    return header_value.split(" ", 1)[1].strip() or None
 
 
 def chat(request: AgentChatRequest) -> AgentChatResponse:
@@ -54,10 +75,7 @@ def chat_endpoint(request: AgentChatRequest, http_request: Request) -> AgentChat
         )
         return cached_response
 
-    # Forward the storefront's Authorization header to backend tool calls
-    # (catalog / order / cart) so chat-agent acts on behalf of the signed-in user.
-    bearer = http_request.headers.get("Authorization") or ""
-    token_value = bearer.split(" ", 1)[1].strip() if bearer.lower().startswith("bearer ") else None
+    token_value = _extract_bearer_token(http_request.headers.get("Authorization"))
     auth_handle = set_auth_token(token_value)
     try:
         result = run_agent(request)
