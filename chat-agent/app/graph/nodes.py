@@ -383,11 +383,12 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
             "node_trace": append_node(state, "ground_response_in_tool_results"),
         }
     fallback_reason = f"{tool_name} returned {result.status}"
+    fallback_filters = {**_filters_from_slots(slots), "in_stock": True}
     fallback_result, tool_calls = call_tool(
         tool_calls,
         "catalog.search",
-        {"query": "jacket", "filters": {"in_stock": True}, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
-        lambda: tools.catalog.search(query="jacket", filters={"in_stock": True}),
+        {"query": "", "filters": fallback_filters, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
+        lambda: tools.catalog.search(query="", filters=fallback_filters),
         trace_id=state.get("trace_id"),
         session_id=state.get("session_id"),
         user_id=state.get("user_id"),
