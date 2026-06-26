@@ -263,6 +263,9 @@ class SpringBackendClient(BackendClient):
         except Exception:  # pragma: no cover - defensive
             return []
         # Recommender shape: { recommendations: [{ variant_id, similarity_score, product_name, ... }] }
+        # The recommender response does NOT contain `slug`, which the storefront
+        # uses to link to product detail pages. Enrich each result with the slug
+        # from a cached BE catalog map so chat product cards remain clickable.
         results: list[dict[str, Any]] = []
         for item in body.get("recommendations", []):
             if not isinstance(item, dict):
@@ -284,7 +287,27 @@ class SpringBackendClient(BackendClient):
                 "recommendationScore": float(item.get("similarity_score") or 0),
                 "recommendationReason": "semantic text match",
             })
+        if results:
+            self._enrich_with_catalog_slugs(results)
         return results
+
+    def _enrich_with_catalog_slugs(self, products: list[dict[str, Any]]) -> None:
+        """Backfill missing slug by matching productId first, then product name."""
+        missing_slug = [p for p in products if not p.get("slug")]
+        if not missing_slug:
+            return
+        slug_by_id, slug_by_name = _product_slug_lookup(self)
+        if not slug_by_id and not slug_by_name:
+            return
+        for product in missing_slug:
+            slug: str | None = None
+            pid = product.get("productId")
+            if pid:
+                slug = slug_by_id.get(str(pid))
+            if not slug and product.get("name"):
+                slug = slug_by_name.get(_normalize_product_name(product["name"]))
+            if slug:
+                product["slug"] = slug
 
     def cart_get(self, user_id: str | None) -> dict[str, Any]:
         payload = self._get("/api/cart")
@@ -397,6 +420,65 @@ def _build_filter_params(filters: dict[str, Any]) -> dict[str, Any]:
     if filters.get("price_max") is not None:
         params["priceMax"] = filters["price_max"]
     return params
+
+
+# Cache of slug lookups for enriching recommender by-text results which lack
+# slug. We index by both productId AND normalized product name because the
+# recommender returns only variant_id (not product_id), so name-based lookup
+# is the reliable path. Single full-catalog fetch (~600 products) lasts an hour.
+_PRODUCT_SLUG_BY_ID: dict[str, str] = {}
+_PRODUCT_SLUG_BY_NAME: dict[str, str] = {}
+_PRODUCT_SLUG_CACHE_EXPIRES_AT: float = 0.0
+_PRODUCT_SLUG_CACHE_LOCK = Lock()
+
+
+def _product_slug_map_ttl_seconds() -> int:
+    return int(os.getenv("PRODUCT_SLUG_CACHE_TTL_SECONDS", "3600"))
+
+
+def _normalize_product_name(name: str) -> str:
+    return " ".join(str(name).lower().strip().split())
+
+
+def _product_slug_lookup(client: "SpringBackendClient") -> tuple[dict[str, str], dict[str, str]]:
+    """Returns (slug_by_id, slug_by_normalized_name) from BE catalog, cached."""
+    global _PRODUCT_SLUG_BY_ID, _PRODUCT_SLUG_BY_NAME, _PRODUCT_SLUG_CACHE_EXPIRES_AT
+    now = time.monotonic()
+    with _PRODUCT_SLUG_CACHE_LOCK:
+        if _PRODUCT_SLUG_CACHE_EXPIRES_AT > now and (_PRODUCT_SLUG_BY_ID or _PRODUCT_SLUG_BY_NAME):
+            return _PRODUCT_SLUG_BY_ID, _PRODUCT_SLUG_BY_NAME
+    try:
+        payload = client._get("/api/catalog/products", {"size": 2000})
+    except Exception:
+        return _PRODUCT_SLUG_BY_ID, _PRODUCT_SLUG_BY_NAME
+    new_by_id: dict[str, str] = {}
+    new_by_name: dict[str, str] = {}
+    for product in _extract_list(payload, "products"):
+        slug = product.get("slug")
+        if not slug:
+            continue
+        product_id = product.get("productId") or product.get("id") or product.get("product_id")
+        if product_id:
+            new_by_id[str(product_id)] = str(slug)
+        name = product.get("name") or product.get("productName")
+        if name:
+            new_by_name[_normalize_product_name(name)] = str(slug)
+    if not new_by_id and not new_by_name:
+        return _PRODUCT_SLUG_BY_ID, _PRODUCT_SLUG_BY_NAME
+    with _PRODUCT_SLUG_CACHE_LOCK:
+        _PRODUCT_SLUG_BY_ID = new_by_id
+        _PRODUCT_SLUG_BY_NAME = new_by_name
+        _PRODUCT_SLUG_CACHE_EXPIRES_AT = now + _product_slug_map_ttl_seconds()
+    return new_by_id, new_by_name
+
+
+def _clear_product_slug_cache() -> None:
+    """Reset the slug cache; intended for tests."""
+    global _PRODUCT_SLUG_BY_ID, _PRODUCT_SLUG_BY_NAME, _PRODUCT_SLUG_CACHE_EXPIRES_AT
+    with _PRODUCT_SLUG_CACHE_LOCK:
+        _PRODUCT_SLUG_BY_ID = {}
+        _PRODUCT_SLUG_BY_NAME = {}
+        _PRODUCT_SLUG_CACHE_EXPIRES_AT = 0.0
 
 
 def _extract_list(payload: Any, preferred_key: str) -> list[dict[str, Any]]:
