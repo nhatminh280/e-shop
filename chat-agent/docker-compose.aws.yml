@@ -52,6 +52,10 @@ services:
       CHAT_AGENT_JSON_LOGS: "true"
       CHAT_AGENT_LOG_LEVEL: INFO
       MIN_VECTOR_SCORE: ${MIN_VECTOR_SCORE:-0.4}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-e-shop-chat-agent}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
