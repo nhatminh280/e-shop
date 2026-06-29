@@ -341,6 +341,15 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
 
 def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     slots = _infer_slots_from_memory(state.get("slots", {}), state)
+    # Refinement of a previous search ("any blue ones?", "size M only") —
+    # the recommender does not accept filter args, so a literal catalog
+    # filter-search honours the new filter while inferred-category keeps
+    # the user in the same product family as the prior turn.
+    has_filter = any(slots.get(k) for k in ("color", "size", "price_min", "price_max"))
+    has_product_ref = bool(slots.get("product_id") or slots.get("variant_id") or slots.get("product_slug"))
+    if has_filter and not has_product_ref and state.get("previous_products"):
+        log_event("recommendation_routed_to_search_refinement", sessionId=state.get("session_id"))
+        return _handle_product_search({**state, "slots": slots})
     recent_ids = [product.product_id for product in state.get("previous_products", [])]
     use_similar = _should_use_similar_recommendation(state, recent_ids)
     tool_name = "recommend.similar" if use_similar else "recommend.personalized"
