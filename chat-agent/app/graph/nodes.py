@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from app.graph.state import GraphState
@@ -292,7 +293,7 @@ def format_structured_response(state: GraphState) -> dict[str, Any]:
 
 
 def _handle_product_search(state: GraphState) -> dict[str, Any]:
-    slots = state.get("slots", {})
+    slots = _infer_slots_from_memory(state.get("slots", {}), state)
     filters = _filters_from_slots(slots)
     query = str(slots.get("query", ""))
     result, tool_calls = call_tool(
@@ -339,7 +340,7 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
 
 
 def _handle_recommendation(state: GraphState) -> dict[str, Any]:
-    slots = state.get("slots", {})
+    slots = _infer_slots_from_memory(state.get("slots", {}), state)
     recent_ids = [product.product_id for product in state.get("previous_products", [])]
     use_similar = _should_use_similar_recommendation(state, recent_ids)
     tool_name = "recommend.similar" if use_similar else "recommend.personalized"
@@ -702,6 +703,20 @@ def _needs_review(
     if response_type in {"fallback", "tool_error"}:
         return True
     return intent_confidence < REVIEW_CONFIDENCE_THRESHOLD or routing_confidence < REVIEW_CONFIDENCE_THRESHOLD
+
+
+def _infer_slots_from_memory(slots: dict[str, Any], state: GraphState) -> dict[str, Any]:
+    if slots.get("category"):
+        return slots
+    categories = [
+        product.category
+        for product in state.get("previous_products", [])
+        if getattr(product, "category", None)
+    ]
+    if not categories:
+        return slots
+    inferred = Counter(categories).most_common(1)[0][0]
+    return {**slots, "category": inferred}
 
 
 def _filters_from_slots(slots: dict[str, Any]) -> dict[str, Any]:
