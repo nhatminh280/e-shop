@@ -47,6 +47,12 @@ else
   LANGSMITH_TRACING="false"
 fi
 
+GRAFANA_ADMIN_USER="${GRAFANA_ADMIN_USER:-admin}"
+GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-changeme}"
+if [ "$GRAFANA_ADMIN_PASSWORD" = "changeme" ]; then
+  echo "==> WARNING: GRAFANA_ADMIN_PASSWORD is the default 'changeme'. Export a real password before deploying to a real prod."
+fi
+
 echo "==> Local repo:        $LOCAL_REPO"
 echo "==> Remote host:       $REMOTE_USER@$EC2_HOST"
 echo "==> Remote path:       $REMOTE_PATH"
@@ -55,6 +61,7 @@ echo "==> LLM model:         $LLM_MODEL"
 echo "==> Recommender URL:   $RECOMMENDER_BASE_URL_ENV"
 echo "==> Backend URL:       ${BACKEND_BASE_URL_ENV:-<not set — FAQ/handoff only>}"
 echo "==> LangSmith:         tracing=$LANGSMITH_TRACING project=$LANGSMITH_PROJECT"
+echo "==> Grafana admin:     $GRAFANA_ADMIN_USER"
 echo
 
 # ---- 1. Sync chat-agent source to EC2 ---------------------------------------
@@ -83,6 +90,8 @@ KNOWLEDGE_RETRIEVAL_MODE=qdrant
 LANGSMITH_TRACING=$LANGSMITH_TRACING
 LANGSMITH_API_KEY=$LANGSMITH_API_KEY
 LANGSMITH_PROJECT=$LANGSMITH_PROJECT
+GRAFANA_ADMIN_USER=$GRAFANA_ADMIN_USER
+GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
 EOF
 chmod 600 $REMOTE_PATH/chat-agent/.env"
 
