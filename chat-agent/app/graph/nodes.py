@@ -225,7 +225,7 @@ def output_guardrails(state: GraphState) -> dict[str, Any]:
     draft_action = state.get("draft_action")
     needs_confirmation = bool(draft_action)
     if draft_action:
-        draft_action.needs_confirmation = True
+        draft_action = draft_action.model_copy(update={"needs_confirmation": True})
     return {
         "draft_action": draft_action,
         "needs_confirmation": needs_confirmation,

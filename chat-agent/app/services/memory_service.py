@@ -42,22 +42,25 @@ class MemoryService:
         for k, _ in oldest:
             self._sessions.pop(k, None)
 
+    def _get_or_create_unlocked(self, session_id: str, now: float, ttl: int, max_size: int) -> SessionMemory:
+        entry = self._sessions.get(session_id)
+        if entry is not None and entry[1] >= now:
+            memory, _ = entry
+            self._sessions[session_id] = (memory, now + ttl)
+            return memory
+        self._purge_expired_unlocked(now)
+        if len(self._sessions) >= max_size:
+            self._evict_oldest_unlocked(max(1, max_size // 4))
+        memory = SessionMemory()
+        self._sessions[session_id] = (memory, now + ttl)
+        return memory
+
     def get(self, session_id: str) -> SessionMemory:
         ttl = _ttl_seconds()
         max_size = _max_size()
         now = time.time()
         with self._lock:
-            entry = self._sessions.get(session_id)
-            if entry is not None and entry[1] >= now:
-                memory, _ = entry
-                self._sessions[session_id] = (memory, now + ttl)
-                return memory
-            self._purge_expired_unlocked(now)
-            if len(self._sessions) >= max_size:
-                self._evict_oldest_unlocked(max(1, max_size // 4))
-            memory = SessionMemory()
-            self._sessions[session_id] = (memory, now + ttl)
-            return memory
+            return self._get_or_create_unlocked(session_id, now, ttl, max_size)
 
     def update(
         self,
@@ -70,18 +73,22 @@ class MemoryService:
         selected_product: ProductCard | None = None,
         selected_order: dict[str, Any] | None = None,
     ) -> None:
-        memory = self.get(session_id)
-        if products:
-            memory.previous_products = products
-            memory.last_selected_product = selected_product or products[0]
-        if tool_results:
-            memory.previous_tool_results = tool_results
-        if selected_product:
-            memory.last_selected_product = selected_product
-        if selected_order:
-            memory.last_selected_order = selected_order
-        memory.last_intent = intent
-        memory.last_assistant_response = assistant_response
+        ttl = _ttl_seconds()
+        max_size = _max_size()
+        now = time.time()
+        with self._lock:
+            memory = self._get_or_create_unlocked(session_id, now, ttl, max_size)
+            if products:
+                memory.previous_products = products
+                memory.last_selected_product = selected_product or products[0]
+            if tool_results:
+                memory.previous_tool_results = tool_results
+            if selected_product:
+                memory.last_selected_product = selected_product
+            if selected_order:
+                memory.last_selected_order = selected_order
+            memory.last_intent = intent
+            memory.last_assistant_response = assistant_response
 
     def clear(self) -> None:
         with self._lock:
