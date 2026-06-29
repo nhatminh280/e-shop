@@ -140,9 +140,12 @@ def test_variant_cart_reference_creates_draft() -> None:
     assert body["draftAction"]["payload"]["productId"] == first_body["productCards"][0]["productId"]
 
 
-def test_empty_message_rejected() -> None:
-    with pytest.raises(ValidationError):
-        AgentChatRequest(sessionId="empty-test", message="")
+def test_empty_message_accepted_at_schema_level() -> None:
+    # Empty messages used to raise ValidationError. The endpoint now handles
+    # them with a friendly prompt; see tests/test_empty_input.py for the HTTP
+    # contract.
+    request = AgentChatRequest(sessionId="empty-test", message="")
+    assert request.message == ""
 
 
 def test_recommendation_flow_uses_previous_products() -> None:

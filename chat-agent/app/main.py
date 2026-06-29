@@ -51,12 +51,31 @@ def chat(request: AgentChatRequest) -> AgentChatResponse:
     return run_agent(request)
 
 
+EMPTY_INPUT_REPLY = (
+    "Please type something — I can help with products, orders, returns, or policies."
+)
+
+
+def _empty_input_response(request: AgentChatRequest) -> AgentChatResponse:
+    return AgentChatResponse(
+        sessionId=request.session_id,
+        traceId=request.trace_id or "",
+        intent="general",
+        responseType="answer",
+        answer=EMPTY_INPUT_REPLY,
+    )
+
+
 @app.post("/agent/chat", response_model=AgentChatResponse, response_model_by_alias=True)
 def chat_endpoint(request: AgentChatRequest, http_request: Request) -> AgentChatResponse:
     request.trace_id = request.trace_id or http_request.headers.get("x-trace-id")
     request.request_id = request.request_id or http_request.headers.get("x-request-id")
     request.traceparent = request.traceparent or http_request.headers.get("traceparent")
     request.session_id = request.session_id or http_request.headers.get("x-session-id") or request.session_id
+
+    if not request.message.strip():
+        log_event("empty_input_rejected", sessionId=request.session_id)
+        return _empty_input_response(request)
 
     # Serve from response cache for stable FAQ/general/handoff queries — same
     # message returns the same answer, so we skip the whole graph (retrieval +
