@@ -698,11 +698,16 @@ def _needs_review(
 ) -> bool:
     if state.get("needs_review"):
         return True
-    if state.get("fallback_count", 0) > 0:
+    if response_type in {"fallback", "tool_error", "empty_result"}:
         return True
-    if response_type in {"fallback", "tool_error"}:
+    if intent_confidence < REVIEW_CONFIDENCE_THRESHOLD or routing_confidence < REVIEW_CONFIDENCE_THRESHOLD:
         return True
-    return intent_confidence < REVIEW_CONFIDENCE_THRESHOLD or routing_confidence < REVIEW_CONFIDENCE_THRESHOLD
+    fallback_count = state.get("fallback_count", 0)
+    if fallback_count > 1:
+        return True
+    if fallback_count == 1 and intent_confidence < CONFIDENCE_MEDIUM:
+        return True
+    return False
 
 
 def _infer_slots_from_memory(slots: dict[str, Any], state: GraphState) -> dict[str, Any]:

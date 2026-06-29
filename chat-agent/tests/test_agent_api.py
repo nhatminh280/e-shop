@@ -458,4 +458,6 @@ def test_recommendation_fallback_trace_includes_reason(monkeypatch: pytest.Monke
     assert fallback_tool["input"]["fallbackFor"] == "recommend.personalized"
     assert fallback_tool["input"]["fallbackReason"] == "recommend.personalized returned timeout"
     assert body["fallbackCount"] == 1
-    assert body["needsReview"] is True
+    # A single fallback with a confident intent is expected behaviour and no
+    # longer floods the review queue — see _needs_review in nodes.py.
+    assert body["needsReview"] is False
