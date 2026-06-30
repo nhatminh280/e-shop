@@ -255,12 +255,46 @@ def ground_response_in_tool_results(state: GraphState) -> dict[str, Any]:
     }
 
 
+ANSWER_MAX_CHARS = 2000
+_UNSAFE_URL_RE = re.compile(r"(?:javascript|data|vbscript):[^\s)\"'<>]*", re.IGNORECASE)
+_SCRIPT_TAG_RE = re.compile(r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+
+
+def _sanitize_answer(answer: str) -> tuple[str, list[str]]:
+    if not answer:
+        return answer, []
+    modifications: list[str] = []
+    cleaned = answer
+    if _SCRIPT_TAG_RE.search(cleaned):
+        cleaned = _SCRIPT_TAG_RE.sub("", cleaned)
+        modifications.append("stripped_script_tags")
+    if _UNSAFE_URL_RE.search(cleaned):
+        cleaned = _UNSAFE_URL_RE.sub("[link removed]", cleaned)
+        modifications.append("stripped_unsafe_url")
+    if len(cleaned) > ANSWER_MAX_CHARS:
+        cleaned = cleaned[: ANSWER_MAX_CHARS - 3].rstrip() + "..."
+        modifications.append("truncated_to_max_chars")
+    return cleaned, modifications
+
+
 def output_guardrails(state: GraphState) -> dict[str, Any]:
     draft_action = state.get("draft_action")
     needs_confirmation = bool(draft_action)
     if draft_action:
         draft_action = draft_action.model_copy(update={"needs_confirmation": True})
+    answer = state.get("answer", "")
+    cleaned_answer, modifications = _sanitize_answer(answer)
+    if modifications:
+        log_event(
+            "output_sanitized",
+            sessionId=state.get("session_id"),
+            traceId=state.get("trace_id"),
+            modifications=modifications,
+            originalLength=len(answer),
+            cleanedLength=len(cleaned_answer),
+        )
     return {
+        "answer": cleaned_answer,
         "draft_action": draft_action,
         "needs_confirmation": needs_confirmation,
         "node_trace": append_node(state, "output_guardrails"),
