@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any
 
@@ -68,6 +69,21 @@ def normalize_message(state: GraphState) -> dict[str, Any]:
     }
 
 
+_INJECTION_PATTERNS = (
+    re.compile(r"\b(ignore|disregard|forget|override)\s+(\w+\s+){0,3}(instructions?|prompts?|rules?|directions?)\b", re.IGNORECASE),
+    re.compile(r"\b(reveal|show|tell|print|expose)\s+(\w+\s+){0,3}(system|hidden|internal)\s+(prompt|instructions?|message)\b", re.IGNORECASE),
+    re.compile(r"\bbypass\s+(the\s+)?(safety|guardrails?|rules?|filter|restrictions?)\b", re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+now\s+(a|an|in)\b", re.IGNORECASE),
+    re.compile(r"\bact\s+(as|like)\s+(if\s+you\s+(are|were)\s+)?(a|an)\s+\w+", re.IGNORECASE),
+    re.compile(r"\b(jailbreak|DAN\s+mode|developer\s+mode)\b", re.IGNORECASE),
+    re.compile(r"<\|.+?\|>"),
+)
+
+
+def _looks_like_prompt_injection(message: str) -> bool:
+    return any(pattern.search(message) for pattern in _INJECTION_PATTERNS)
+
+
 def input_guardrails(state: GraphState) -> dict[str, Any]:
     message = state.get("normalized_message", "")
     if not message:
@@ -90,6 +106,23 @@ def input_guardrails(state: GraphState) -> dict[str, Any]:
             "routing_confidence": CONFIDENCE_CERTAIN,
             "needs_review": True,
             "answer": "Please shorten the message and try again.",
+            "response_type": "clarification",
+            "fallback_count": state.get("fallback_count", 0) + 1,
+            "node_trace": append_node(state, "input_guardrails"),
+        }
+    if _looks_like_prompt_injection(state.get("message", "")):
+        log_event(
+            "prompt_injection_blocked",
+            sessionId=state.get("session_id"),
+            traceId=state.get("trace_id"),
+        )
+        return {
+            "intent": "fallback",
+            "intent_confidence": CONFIDENCE_CERTAIN,
+            "route": "clarification",
+            "routing_confidence": CONFIDENCE_CERTAIN,
+            "needs_review": True,
+            "answer": "I can help with shopping — products, orders, returns, or policies. How can I help?",
             "response_type": "clarification",
             "fallback_count": state.get("fallback_count", 0) + 1,
             "node_trace": append_node(state, "input_guardrails"),
