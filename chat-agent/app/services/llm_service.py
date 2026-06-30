@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from app.services.circuit_breaker import openai_breaker
+
 
 LLM_SYSTEM_PROMPT = """You are an e-commerce assistant for an outdoor apparel shop.
 Answer only from the provided tool data and retrieved knowledge.
@@ -39,6 +41,9 @@ def generate_grounded_answer(
     if not llm_enabled():
         return LlmResult(answer=current_answer, used=False)
 
+    if openai_breaker.is_open():
+        return LlmResult(answer=current_answer, used=False, error="openai_circuit_open")
+
     payload = {
         "model": os.getenv("LLM_MODEL", "gpt-4o-mini"),
         "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
@@ -66,10 +71,12 @@ def generate_grounded_answer(
             response.raise_for_status()
             body = response.json()
         answer = _extract_answer(body).strip()
+        openai_breaker.record_success()
         if not answer:
             return LlmResult(answer=current_answer, used=False, error="empty llm answer")
         return LlmResult(answer=answer, used=True)
     except Exception as exc:  # pragma: no cover - network/provider defensive path
+        openai_breaker.record_failure()
         return LlmResult(answer=current_answer, used=False, error=f"{exc.__class__.__name__}: {exc}")
 
 

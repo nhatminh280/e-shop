@@ -73,6 +73,10 @@ def classify_intent_with_llm(message: str) -> Intent | None:
 
 @lru_cache(maxsize=_LLM_INTENT_CACHE_SIZE)
 def _classify_cached(cleaned_message: str) -> Intent | None:
+    from app.services.circuit_breaker import openai_breaker
+
+    if openai_breaker.is_open():
+        return None
     payload: dict[str, Any] = {
         "model": os.getenv("LLM_INTENT_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")),
         "temperature": 0.0,
@@ -87,7 +91,9 @@ def _classify_cached(cleaned_message: str) -> Intent | None:
             response = client.post(_api_url(), headers=_headers(), json=payload)
             response.raise_for_status()
             verdict = _extract_answer(response.json()).strip().lower()
+        openai_breaker.record_success()
     except Exception:  # pragma: no cover - defensive
+        openai_breaker.record_failure()
         return None
     candidate = verdict.split()[0] if verdict else ""
     candidate = candidate.strip(".,:;\"'`")
