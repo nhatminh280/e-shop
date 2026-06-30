@@ -10,6 +10,7 @@ from app.services import memory_service, response_cache
 from app.services.env_service import load_local_env
 from app.services.logging_service import configure_logging, log_event
 from app.services.metrics_service import metrics_service
+from app.services.rate_limit_service import rate_limiter
 from app.services.trace_context_service import reset_auth_token, set_auth_token
 
 
@@ -55,6 +56,10 @@ EMPTY_INPUT_REPLY = (
     "Please type something — I can help with products, orders, returns, or policies."
 )
 
+RATE_LIMITED_REPLY = (
+    "You're sending messages a bit too quickly. Please wait a moment and try again."
+)
+
 
 def _empty_input_response(request: AgentChatRequest) -> AgentChatResponse:
     return AgentChatResponse(
@@ -66,12 +71,37 @@ def _empty_input_response(request: AgentChatRequest) -> AgentChatResponse:
     )
 
 
+def _rate_limited_response(request: AgentChatRequest) -> AgentChatResponse:
+    return AgentChatResponse(
+        sessionId=request.session_id,
+        traceId=request.trace_id or "",
+        intent="general",
+        responseType="answer",
+        answer=RATE_LIMITED_REPLY,
+    )
+
+
+def _client_key(http_request: Request) -> str:
+    forwarded = http_request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    if http_request.client and http_request.client.host:
+        return http_request.client.host
+    return ""
+
+
 @app.post("/agent/chat", response_model=AgentChatResponse, response_model_by_alias=True)
 def chat_endpoint(request: AgentChatRequest, http_request: Request) -> AgentChatResponse:
     request.trace_id = request.trace_id or http_request.headers.get("x-trace-id")
     request.request_id = request.request_id or http_request.headers.get("x-request-id")
     request.traceparent = request.traceparent or http_request.headers.get("traceparent")
     request.session_id = request.session_id or http_request.headers.get("x-session-id") or request.session_id
+
+    client_key = _client_key(http_request)
+    allowed, retry_after = rate_limiter.consume(client_key)
+    if not allowed:
+        log_event("rate_limited", clientKey=client_key, retryAfterSeconds=round(retry_after, 1))
+        return _rate_limited_response(request)
 
     if not request.message.strip():
         log_event("empty_input_rejected", sessionId=request.session_id)
