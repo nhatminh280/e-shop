@@ -479,6 +479,31 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
             "node_trace": append_node(state, "ground_response_in_tool_results"),
         }
     fallback_reason = f"{tool_name} returned {result.status}"
+    # Semantic step: when the customer gave a real query the recommender
+    # could not fulfil, try CLIP-based text search first. "hoodie" -> the
+    # embedding lands next to sweatshirts and pullovers, so the customer
+    # sees items that actually resemble what they asked for.
+    user_query = str(slots.get("query") or "").strip()
+    if user_query and user_query.lower() not in {"recommend", "recommendation"}:
+        semantic, tool_calls = call_tool(
+            tool_calls,
+            "recommend.by_text",
+            {"query": user_query, "fallbackFor": tool_name, "fallbackReason": fallback_reason},
+            lambda: tools.recommendation.by_text(query=user_query),
+            trace_id=state.get("trace_id"),
+            session_id=state.get("session_id"),
+            user_id=state.get("user_id"),
+        )
+        if semantic.status == "success" and semantic.data:
+            return {
+                "answer": f'Here are products related to "{user_query}".',
+                "response_type": "recommendations",
+                "product_cards": semantic.data,
+                "last_selected_product": semantic.data[0],
+                "tool_calls": tool_calls,
+                "fallback_count": state.get("fallback_count", 0) + 1,
+                "node_trace": append_node(state, "ground_response_in_tool_results"),
+            }
     fallback_filters = {**_filters_from_slots(slots), "in_stock": True}
     fallback_result, tool_calls = call_tool(
         tool_calls,

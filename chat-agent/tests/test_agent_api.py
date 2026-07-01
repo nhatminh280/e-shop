@@ -208,9 +208,14 @@ def test_recommendation_falls_back_to_catalog_cards(monkeypatch: pytest.MonkeyPa
     assert body["responseType"] == "recommendations"
     assert body["productCards"]
     assert body["fallbackCount"] == 1
-    assert [tool["toolName"] for tool in body["toolCalls"]] == ["recommend.similar", "catalog.search"]
+    # After the recommender fails, chat-agent now tries a CLIP semantic
+    # search (recommend.by_text) before the random-popular catalog fallback.
+    # The mock does not implement by_text, so call_tool records it as a
+    # backend_error and the flow proceeds to catalog.search.
+    tool_names = [tool["toolName"] for tool in body["toolCalls"]]
+    assert tool_names == ["recommend.similar", "recommend.by_text", "catalog.search"]
     assert body["toolCalls"][0]["status"] == status
-    assert body["toolCalls"][1]["status"] == "success"
+    assert body["toolCalls"][-1]["status"] == "success"
 
 
 def test_personalized_recommendation_falls_back_to_catalog_cards(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,9 +232,10 @@ def test_personalized_recommendation_falls_back_to_catalog_cards(monkeypatch: py
     assert body["responseType"] == "recommendations"
     assert body["productCards"]
     assert body["fallbackCount"] == 1
-    assert [tool["toolName"] for tool in body["toolCalls"]] == ["recommend.personalized", "catalog.search"]
+    tool_names = [tool["toolName"] for tool in body["toolCalls"]]
+    assert tool_names == ["recommend.personalized", "recommend.by_text", "catalog.search"]
     assert body["toolCalls"][0]["status"] == "empty_result"
-    assert body["toolCalls"][1]["status"] == "success"
+    assert body["toolCalls"][-1]["status"] == "success"
 
 
 def test_follow_up_contextual_cart_reference() -> None:
