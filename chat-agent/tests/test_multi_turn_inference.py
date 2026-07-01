@@ -65,3 +65,27 @@ def test_preserves_other_slots():
     assert augmented["color"] == "blue"
     assert augmented["size"] == "M"
     assert augmented["price_max"] == 200
+
+
+def test_refinement_keywords_route_matches():
+    from app.graph.nodes import _REFINEMENT_KEYWORDS_RE
+    for query in [
+        "anything cheaper",
+        "any waterproof ones",
+        "show me another",
+        "similar items",
+        "under $200",
+        "something lighter",
+    ]:
+        assert _REFINEMENT_KEYWORDS_RE.search(query) is not None, query
+
+
+def test_refinement_keywords_reject_normal_queries():
+    from app.graph.nodes import _REFINEMENT_KEYWORDS_RE
+    for query in [
+        "show me jackets",
+        "return policy",
+        "where is my order",
+        "recommend a hoodie",
+    ]:
+        assert _REFINEMENT_KEYWORDS_RE.search(query) is None, query

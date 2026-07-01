@@ -406,15 +406,26 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
     return _fallback_from_tool(state, result, tool_calls, "I could not find a matching product.")
 
 
+_REFINEMENT_KEYWORDS_RE = re.compile(
+    r"\b(cheaper|cheapest|pricier|less\s+expensive|more\s+expensive|"
+    r"under|below|above|over|less\s+than|more\s+than|"
+    r"another|other|others|different|similar|any|"
+    r"smaller|larger|bigger|shorter|longer|lighter|heavier|warmer|cooler)\b",
+    re.IGNORECASE,
+)
+
+
 def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     slots = _infer_slots_from_memory(state.get("slots", {}), state)
-    # Refinement of a previous search ("any blue ones?", "size M only") —
-    # the recommender does not accept filter args, so a literal catalog
+    # Refinement of a previous search ("any blue ones?", "cheaper?", "size M only")
+    # — the recommender does not accept filter args, so a literal catalog
     # filter-search honours the new filter while inferred-category keeps
     # the user in the same product family as the prior turn.
     has_filter = any(slots.get(k) for k in ("color", "size", "price_min", "price_max"))
+    query_text = str(slots.get("query") or state.get("normalized_message") or "")
+    has_refinement_language = bool(_REFINEMENT_KEYWORDS_RE.search(query_text))
     has_product_ref = bool(slots.get("product_id") or slots.get("variant_id") or slots.get("product_slug"))
-    if has_filter and not has_product_ref and state.get("previous_products"):
+    if (has_filter or has_refinement_language) and not has_product_ref and state.get("previous_products"):
         log_event("recommendation_routed_to_search_refinement", sessionId=state.get("session_id"))
         return _handle_product_search({**state, "slots": slots})
     recent_ids = [product.product_id for product in state.get("previous_products", [])]
