@@ -490,8 +490,17 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
         user_id=state.get("user_id"),
     )
     if fallback_result.status == "success":
+        user_query = str(slots.get("query") or "").strip()
+        if user_query and user_query.lower() not in {"recommend", "recommendation"}:
+            fallback_answer = (
+                f'I could not find items that specifically match "{user_query}", '
+                "so here are some popular in-stock alternatives — please note these "
+                "may not exactly match what you asked for."
+            )
+        else:
+            fallback_answer = "I could not get similar recommendations, so here are popular in-stock products."
         return {
-            "answer": "I could not get similar recommendations, so here are popular in-stock products.",
+            "answer": fallback_answer,
             "response_type": "recommendations",
             "product_cards": fallback_result.data,
             "last_selected_product": fallback_result.data[0] if fallback_result.data else None,
