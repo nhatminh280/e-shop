@@ -127,7 +127,9 @@ class SpringBackendClient(BackendClient):
             if self._consecutive_failures >= self.circuit_failure_threshold:
                 self._circuit_opened_at = self._clock()
 
-    def catalog_search(self, query: str, filters: dict[str, Any] | None = None, limit: int = 4) -> list[dict[str, Any]]:
+    def catalog_search(self, query: str, filters: dict[str, Any] | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        if limit is None:
+            limit = _product_search_limit()
         # Spring /products/search supports text matching (`q`) but ignores filters.
         # Spring /products/filter supports strict filters but no text matching.
         # Strategy: when we have a text query, prefer /search (over-fetch) and
@@ -188,7 +190,9 @@ class SpringBackendClient(BackendClient):
             products = [p for p in products if _color_decision(p)]
         return products[:limit]
 
-    def catalog_filter(self, filters: dict[str, Any], limit: int = 4) -> list[dict[str, Any]]:
+    def catalog_filter(self, filters: dict[str, Any], limit: int | None = None) -> list[dict[str, Any]]:
+        if limit is None:
+            limit = _product_search_limit()
         params = _build_filter_params(filters)
         params["size"] = limit
         payload = self._get("/api/catalog/products/filter", params)
@@ -203,8 +207,10 @@ class SpringBackendClient(BackendClient):
         product_id: str | None = None,
         variant_id: str | None = None,
         recent_product_ids: list[str] | None = None,
-        limit: int = 4,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        if limit is None:
+            limit = _recommendation_limit()
         params = {
             "productId": product_id,
             "variantId": variant_id,
@@ -223,8 +229,10 @@ class SpringBackendClient(BackendClient):
         self,
         user_id: str | None = None,
         recent_product_ids: list[str] | None = None,
-        limit: int = 4,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        if limit is None:
+            limit = _recommendation_limit()
         params = {
             "userId": user_id,
             "recentProductIds": recent_product_ids or [],
@@ -241,7 +249,7 @@ class SpringBackendClient(BackendClient):
     def recommend_by_text(
         self,
         query: str,
-        limit: int = 4,
+        limit: int | None = None,
         min_similarity: float = 0.0,
     ) -> list[dict[str, Any]]:
         """Call the recommender's /recommend/by-text endpoint directly.
@@ -249,6 +257,8 @@ class SpringBackendClient(BackendClient):
         Falls back to an empty list on any failure (recommender down, env not
         set, etc.) so semantic search is best-effort and never blocks the chat.
         """
+        if limit is None:
+            limit = _product_search_limit()
         base_url = os.getenv("RECOMMENDER_BASE_URL", "").strip()
         if not base_url:
             return []
@@ -396,6 +406,20 @@ _BE_GENDER_MAP = {
     "unisex": "unisex",
     "kids": "kids",
 }
+
+
+def _product_search_limit() -> int:
+    try:
+        return max(1, int(os.getenv("PRODUCT_SEARCH_LIMIT", "6")))
+    except ValueError:
+        return 6
+
+
+def _recommendation_limit() -> int:
+    try:
+        return max(1, int(os.getenv("RECOMMENDATION_LIMIT", "4")))
+    except ValueError:
+        return 4
 
 
 def _build_filter_params(filters: dict[str, Any]) -> dict[str, Any]:

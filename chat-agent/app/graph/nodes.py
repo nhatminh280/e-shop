@@ -389,7 +389,7 @@ def _handle_product_search(state: GraphState) -> dict[str, Any]:
             tool_calls,
             "recommend.by_text",
             {"query": query},
-            lambda: tools.recommendation.by_text(query=query, limit=4),
+            lambda: tools.recommendation.by_text(query=query),
             trace_id=state.get("trace_id"),
             session_id=state.get("session_id"),
             user_id=state.get("user_id"),
