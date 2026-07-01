@@ -427,7 +427,12 @@ def _handle_recommendation(state: GraphState) -> dict[str, Any]:
     has_product_ref = bool(slots.get("product_id") or slots.get("variant_id") or slots.get("product_slug"))
     if (has_filter or has_refinement_language) and not has_product_ref and state.get("previous_products"):
         log_event("recommendation_routed_to_search_refinement", sessionId=state.get("session_id"))
-        return _handle_product_search({**state, "slots": slots})
+        # Drop the free-text query -- it holds refinement language like
+        # "anything cheaper" that would not match any product name and
+        # would drive a semantic fallback across the whole catalog. The
+        # inferred category + explicit filter slots are enough.
+        refined_slots = {k: v for k, v in slots.items() if k != "query"}
+        return _handle_product_search({**state, "slots": refined_slots})
     recent_ids = [product.product_id for product in state.get("previous_products", [])]
     use_similar = _should_use_similar_recommendation(state, recent_ids)
     tool_name = "recommend.similar" if use_similar else "recommend.personalized"
