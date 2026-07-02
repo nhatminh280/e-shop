@@ -22,6 +22,18 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+
   chat-agent:
     build:
       context: .
@@ -30,6 +42,7 @@ services:
     restart: unless-stopped
     depends_on:
       - qdrant
+      - redis
     environment:
       MOCK_BACKEND: "false"
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://host.docker.internal:8080}
@@ -43,6 +56,7 @@ services:
       KNOWLEDGE_QDRANT_COLLECTION: ${KNOWLEDGE_QDRANT_COLLECTION:-knowledge_documents_v1}
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LLM_ENABLED: ${LLM_ENABLED:-true}
       LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
       LLM_API_KEY: ${LLM_API_KEY:-${OPENAI_API_KEY}}
@@ -98,5 +112,6 @@ services:
 
 volumes:
   qdrant_storage:
+  redis_data:
   prometheus_data:
   grafana_data:

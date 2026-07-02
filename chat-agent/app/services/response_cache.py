@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
 from typing import Any
 
+from app.services.redis_client import get_client
+
 # Only cache responses for intents where the answer doesn't depend on
 # real-time data. product_search / order_status / recommendation / cart_action
 # all change based on inventory / orders, so they must NOT be cached.
 CACHEABLE_INTENTS: set[str] = {"policy_or_faq", "general", "support_handoff"}
+
+_REDIS_KEY_PREFIX = "chat:response_cache:"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -39,10 +44,23 @@ def _key(message: str, authenticated: bool) -> str:
     return f"{int(authenticated)}|{normalized}"
 
 
+def _redis_key(key: str) -> str:
+    return f"{_REDIS_KEY_PREFIX}{key}"
+
+
 def get(message: str, authenticated: bool = False) -> dict[str, Any] | None:
     if not _enabled():
         return None
     key = _key(message, authenticated)
+    client = get_client()
+    if client is not None:
+        try:
+            raw = client.get(_redis_key(key))
+            if raw is None:
+                return None
+            return json.loads(raw)
+        except Exception:
+            pass  # fall through to in-memory
     now = time.time()
     with _lock:
         entry = _store.get(key)
@@ -65,6 +83,13 @@ def put(
         return
     key = _key(message, authenticated)
     ttl = _ttl_seconds()
+    client = get_client()
+    if client is not None:
+        try:
+            client.set(_redis_key(key), json.dumps(response, default=str), ex=ttl)
+            return
+        except Exception:
+            pass  # fall through to in-memory
     max_size = _max_size()
     now = time.time()
     with _lock:
@@ -79,10 +104,26 @@ def put(
 
 
 def clear() -> None:
+    client = get_client()
+    if client is not None:
+        try:
+            for key in client.scan_iter(match=f"{_REDIS_KEY_PREFIX}*"):
+                client.delete(key)
+        except Exception:
+            pass
     with _lock:
         _store.clear()
 
 
 def size() -> int:
+    client = get_client()
+    if client is not None:
+        try:
+            total = 0
+            for _ in client.scan_iter(match=f"{_REDIS_KEY_PREFIX}*"):
+                total += 1
+            return total
+        except Exception:
+            pass
     with _lock:
         return len(_store)
